@@ -1,61 +1,46 @@
-﻿import asyncio
+import asyncio
 import time
 import socket  # For sending python commands directly to UE4
+import dronekit
+from projectairsim import projectairsim_log
 
 from dronekit import LocationGlobalRelative, VehicleMode, connect
-# from flight.camera import CameraAirSim
 
 import asyncio
-import os
-import tempfile
 # import cv2
 import numpy as np
-from datetime import datetime
 
-from projectairsim import ProjectAirSimClient, Drone, World
-from projectairsim.utils import projectairsim_log, unpack_image
-from projectairsim.image_utils import ImageDisplay
+address = "127.0.0.1:14550"
 
-address = "127.0.0.1"
-port_topics = "8990"
+# client = ProjectAirSimClient(address=other_address)
+#
+# client.connect()
+vehicle = dronekit.connect(address, wait_ready=True, timeout=90)
 
-client = ProjectAirSimClient(address=address, port_topics=port_topics)
-
-client.connect()
-# drone = Drone(client, "scene_suas.jsonc")
-
-world = World(client=client, scene_config_name="scene_suas.jsonc")
-drones = [
-    projectairsim.Drone(client=client, world=world, name=f"Drone{i}")
-    for i in range(1, 6)
-]
-# sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# sock.connect(("127.0.0.1", 9900))
-# print("TCP Server Connected @ 127.0.0.1:9900!")
+# world = World(client=client, scene_config_name="/workspace/simulation/sim_config/scene_suas.jsonc")
+# drones = [
+#     Drone(client=client, world=world, name=f"Drone{i}")
+#     for i in range(1, 1)
+# ]
+# drone = Drone(client=client, world=world, name="Drone1")
 
 async def main():
-    # Set the drone to be ready to fly
-    drone.enable_api_control()
-    drone.arm()
+    # DroneKit uses different commands than ProjectAirSim
+    print("Basic pre-arm checks")
+    while not vehicle.is_armable:
+        print(" Waiting for vehicle to initialise...")
+        await asyncio.sleep(1)
 
-    projectairsim_log().info("takeoff_async: starting")
-    takeoff_task = (
-        await drone.takeoff_async()
-    )  # schedule an async task to start the command
+    print("Arming motors")
+    vehicle.mode = VehicleMode("GUIDED")
+    vehicle.armed = True
 
-    # Example 1: Wait on the result of async operation using 'await' keyword
-    await takeoff_task
-    projectairsim_log().info("takeoff_async: completed")
+    while not vehicle.armed:
+        print(" Waiting for arming...")
+        await asyncio.sleep(1)
 
-    # Command the drone to move up in NED coordinate system at 1 m/s for 4 seconds
-    move_up_task = await drone.move_by_velocity_async(
-        v_north=0.0, v_east=0.0, v_down=-1.0, duration=4.0
-    )
-    projectairsim_log().info("Move-Up invoked")
-
-    await move_up_task
-    projectairsim_log().info("Move-Up completed")
-
+    print("Taking off!")
+    vehicle.simple_takeoff(10)  # Take off to 10m
     # Control drone
     # type n to move north, s south, e east, w west, u up, and d down
     # you can put multiple at once, such as nnneeeuuu to do multiple commands at once
@@ -86,14 +71,14 @@ async def main():
             elif cmd == "d":
                 alt += 5
             # elif cmd == "p":
-    #             print("Attempting to capture photo")
-    #             await takepic(cam)
-    #             print("Photo captured")
-    #         elif cmd == "m":
-    #             print("Attempting release!")
-    #             send_rpc_msg("RELEASE")
+        #             print("Attempting to capture photo")
+        #             await takepic(cam)
+        #             print("Photo captured")
+        #         elif cmd == "m":
+        #             print("Attempting release!")
+        #             send_rpc_msg("RELEASE")
 
-        new_move = await drone.move_by_velocity_async(
+        new_move = await drone2.move_by_velocity_async(
             v_north=lat, v_east=lon, v_down=alt, duration=1.0
         )
         while not new_move.done():
@@ -106,6 +91,82 @@ async def main():
     drone.disable_api_control()
     # sock.close() # Release the socket server
 
+async def multi_main():
+    # Set the drone to be ready to fly
+    for drone in drones: drone.enable_api_control()
+    for drone in drones: drone.arm()
+
+    projectairsim_log().info("takeoff_async: starting")
+    for drone in drones:
+        takeoff_task = (
+            await drone.takeoff_async()
+        )  # schedule an async task to start the command
+
+        # Example 1: Wait on the result of async operation using 'await' keyword
+        await takeoff_task
+    projectairsim_log().info("takeoff_async: completed")
+
+    # Command the drone to move up in NED coordinate system at 1 m/s for 4 seconds
+    for drone in drones:
+        move_up_task = await drone.move_by_velocity_async(
+        v_north=0.0, v_east=0.0, v_down=-1.0, duration=4.0
+        )
+        projectairsim_log().info("Move-Up invoked")
+
+        await move_up_task
+    projectairsim_log().info("Move-Up completed")
+
+    # Control drone
+    # type n to move north, s south, e east, w west, u up, and d down
+    # you can put multiple at once, such as nnneeeuuu to do multiple commands at once
+    # type q to quit/land
+    lat, lon, alt = 0.0, 0.0, 0.0
+    while True:
+        command: str = input("Give instructions: ").lower()
+
+        for drone in drones:
+            if command.lower() in ("die", "q", "quit"):
+                projectairsim_log().info("land_async: starting")
+                land_task = await drone.land_async()
+                await land_task
+                projectairsim_log().info("land_async: completed")
+                break
+
+            lat, lon, alt = 0.0, 0.0, 0.0
+            for cmd in command:
+                if cmd == "n":
+                    lat += 1
+                elif cmd == "s":
+                    lat -= 1
+                elif cmd == "e":
+                    lon += 1
+                elif cmd == "w":
+                    lon -= 1
+                elif cmd == "u":
+                    alt -= 5
+                elif cmd == "d":
+                    alt += 5
+                # elif cmd == "p":
+            #             print("Attempting to capture photo")
+            #             await takepic(cam)
+            #             print("Photo captured")
+            #         elif cmd == "m":
+            #             print("Attempting release!")
+            #             send_rpc_msg("RELEASE")
+
+            for drone2 in drones:
+                new_move = await drone2.move_by_velocity_async(
+                    v_north=lat, v_east=lon, v_down=alt, duration=1.0
+                )
+                while not new_move.done():
+                    await asyncio.sleep(0.01)
+
+        projectairsim_log().info("new_move: started")
+
+    # Close vehicle object before exiting script
+    for drone in drones: drone.disarm()
+    for drone in drones: drone.disable_api_control()
+    # sock.close() # Release the socket server
 
 # --- RPC Server Send ---
 def send_rpc_msg(cmd):

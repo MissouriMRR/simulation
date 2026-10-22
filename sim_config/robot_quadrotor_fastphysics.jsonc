@@ -469,6 +469,14 @@
       "type": "magnetometer",
       "enabled": false,
       "parent-link": "Frame"
+    },
+    {
+      "mavlink": {
+        "type": "Mavlink",
+        "udp-ip": "127.0.0.1",
+        "udp-port": 14550,
+        "use-serial": false
+    }
     }
   ]
 }

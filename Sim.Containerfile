@@ -25,11 +25,37 @@ RUN pip install -U numpy
 # add GolfCourse location to ArduPilot locations
 RUN echo '# Multirotor Locations\nGolfCourse=37.9490953,-91.7848293,0,0' >> /ardupilot/Tools/autotest/locations.txt
 
-COPY simulation/sim_start_drones.sh /ardupilot/Tools/autotest/
+COPY ./sim_start_drones.sh /ardupilot/Tools/autotest/
+COPY ./templates/multidrone.parm /ardupilot/Tools/autotest/
 
-# Environment Variables
+
+# Strip carriage returns in case the build context was checked out on Windows with CRLF
+# endings. .gitattributes should already prevent this
+RUN sed -i 's/\r$//' /ardupilot/Tools/autotest/sim_start_drones.sh \
+    && chmod +x /ardupilot/Tools/autotest/sim_start_drones.sh
+
+LABEL org.opencontainers.image.source=https://github.com/MissouriMRR/Simulation-2026
+
+# Strip carriage returns in case the build context was checked out on Windows with CRLF
+# endings. A CRLF shebang makes exec fail with "No such file or directory" naming the
+# script itself, which is a genuinely confusing way to spend an afternoon. .gitattributes
+# should already prevent this; this is the belt to that pair of braces.
+RUN sed -i 's/\r$//' /ardupilot/Tools/autotest/sim_start_drones.sh \
+    && chmod +x /ardupilot/Tools/autotest/sim_start_drones.sh
+
+# ENVIRONMENT VARIABLES
+
+# The variables below are passed to sim_start_drones.sh within the container (see below)
+# NOTE: DO NOT CHANGE THESE HERE (unless defaults change); set the env variables when
+#       starting the sim container (including when using run_container.sh)
+
+# OUT_PORT/HOST - sets the port/IP of the sim
 ENV OUT_PORT=14550
 ENV OUT_HOST=127.0.0.1
+
+# NUM_DRONES - the number of drones to start
+#  for multi-drone simulations, it's recommended to use update_airsim_settings.ps1 to automatically
+#     configure settings correctly.
 ENV NUM_DRONES=1
 
 CMD /ardupilot/Tools/autotest/sim_start_drones.sh $NUM_DRONES $OUT_PORT $OUT_HOST
