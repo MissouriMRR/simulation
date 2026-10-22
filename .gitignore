@@ -1,0 +1,24 @@
+/Windows/
+
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+dist/
+build/
+
+# written by launcher/mrrsim/scenegen.py (python sim_config/generate_scene.py N)
+/sim_config/scene_ardupilot_*quadrotors*.jsonc
+/sim_config/robot_ardu_quadrotor_*.jsonc
+
+# ArduPilot flight logs saved by `mrrsim up`
+/logs/
+
+# compiled installer
+/Output/
+
+# the distro payload built by tools/build_distro.py
+/payload/
+
+.zed/
+.claude/

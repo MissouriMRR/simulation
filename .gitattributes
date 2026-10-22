@@ -1,0 +1,5 @@
+# Files that run inside Linux containers must keep LF endings even when checked out on Windows
+*.sh text eol=lf
+Containerfile text eol=lf
+*.parm text eol=lf
+* text=auto
