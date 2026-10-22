@@ -14,6 +14,7 @@ import collections.abc
 # commentjson (a projectairsim dependency) still uses the pre-3.10 collections aliases
 collections.MutableMapping = collections.abc.MutableMapping
 
+import argparse
 import os
 import subprocess
 import sys
@@ -61,37 +62,73 @@ def run_suas_code():
         print("Error: 'uv' is not installed")
 
 
+def load_empty_scene(client):
+    """
+    The SITL pulls scene data on startup, so a scene has to exist before it starts, but a
+    drone that spawns before its SITL is running softlocks. Loading an empty scene first
+    breaks that circular wait.
+    """
+    World(client, EMPTY_SCENE, delay_after_load_sec=2, sim_config_path=SIM_CONFIG_PATH)
+
+
+def spawn_drones(client):
+    """
+    Clones the scene's single drone into a 1 x NUM_DRONES row, offsetting each copy's
+    ArduPilot UDP ports by 10 to match sim_vehicle.py --instance.
+    """
+    MultidroneWorld(
+        client,
+        DRONE_SCENE,
+        delay_after_load_sec=2,
+        sim_config_path=SIM_CONFIG_PATH,
+        drone_grid=(1, NUM_DRONES),
+    )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    # The run splits in two because a fresh SITL has to come up between the empty scene and
+    # the drones: each spawn restarts the sim clock at 0, and a SITL already fed by an earlier
+    # drone waits for sim time to climb back to where that drone left off before its flight
+    # code runs again. 'all' asks for the restart at a prompt; launch.ps1 drives the stages
+    # itself and does the restart in between.
+    parser.add_argument(
+        "--stage",
+        choices=("all", "empty", "spawn"),
+        default="all",
+        help="all: empty scene, prompt for a sim restart, then spawn and fly (default). "
+        "empty: load the empty scene and exit. "
+        "spawn: spawn the drone(s) into the already-loaded scene and fly.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     client = ProjectAirSimClient()
 
     try:
         print("Connecting to projectAirSim...")
         client.connect()
 
-        # The SITL pulls scene data on startup, so a scene has to exist before it starts,
-        # but a drone that spawns before its SITL is running softlocks. Loading an empty
-        # scene first breaks that circular wait.
-        World(client, EMPTY_SCENE, delay_after_load_sec=2, sim_config_path=SIM_CONFIG_PATH)
+        if args.stage in ("all", "empty"):
+            load_empty_scene(client)
 
-        # Restart the SITL for every run. Each spawn restarts the sim clock at 0, and a SITL
-        # already fed by an earlier drone waits for sim time to climb back to where that drone
-        # left off before its flight code runs again, so dronekit sees no heartbeat for as long
-        # as the previous drone was up.
-        input(
-            f"Empty scene loaded. Restart the sim container now so the SITL is fresh "
-            f"(NUM_DRONES={NUM_DRONES}), wait for it to finish booting, then press Enter to "
-            f"spawn the drone(s): "
-        )
+        if args.stage == "empty":
+            print(
+                f"Empty scene loaded. Start the sim container (NUM_DRONES={NUM_DRONES}), then "
+                f"rerun this with --stage spawn."
+            )
+            return
 
-        # Clones the scene's single drone into a 1 x NUM_DRONES row, offsetting each copy's
-        # ArduPilot UDP ports by 10 to match sim_vehicle.py --instance.
-        MultidroneWorld(
-            client,
-            DRONE_SCENE,
-            delay_after_load_sec=2,
-            sim_config_path=SIM_CONFIG_PATH,
-            drone_grid=(1, NUM_DRONES),
-        )
+        if args.stage == "all":
+            input(
+                f"Empty scene loaded. Restart the sim container now so the SITL is fresh "
+                f"(NUM_DRONES={NUM_DRONES}), wait for it to finish booting, then press Enter to "
+                f"spawn the drone(s): "
+            )
+
+        spawn_drones(client)
 
         run_suas_code()
 
