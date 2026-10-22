@@ -22,3 +22,6 @@ build/
 
 .zed/
 .claude/
+
+# written by tools/sync_version.py from the installer script's AppVersion
+/launcher/mrrsim/_version.py
