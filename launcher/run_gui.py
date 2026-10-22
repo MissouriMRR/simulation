@@ -5,7 +5,7 @@ Entry point of MRRSimulatorGUI.exe (windowed, no CLI), built by PyInstaller.
 import sys
 
 try:
-    from mrrsim.gui import main
+    from mrrsim.ui.app import main
 
     code = main()
 except Exception as exc:  # noqa: BLE001
