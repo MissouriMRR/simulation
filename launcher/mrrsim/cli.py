@@ -202,6 +202,58 @@ def _load_design(cfg: config.Config, name: str) -> tuple[str, dict]:
     return vehicle_design.slug(name), design.doc
 
 
+def _apply_script_and_vehicles(
+    cfg: config.Config, args: argparse.Namespace
+) -> None:
+    """--script/--project and --vehicles: choose the script, and how many
+    vehicles to start (--vehicles wins; otherwise the number the script asks for
+    in its header, if any)."""
+    script_info = (
+        _override_script(cfg, args.script, getattr(args, "project", None))
+        if args.script
+        else None
+    )
+    if args.vehicles is not None:
+        cfg.sitl.vehicles = args.vehicles
+    elif script_info is not None and script_info.vehicles:
+        cfg.sitl.vehicles = script_info.vehicles
+        print(f"{script_info.name} asks for {script_info.vehicles} vehicle(s)")
+
+
+def _apply_script_arguments(
+    cfg: config.Config, args: argparse.Namespace
+) -> poseargs.Pose:
+    """--script-args: set the arguments the script gets. The spawn pose options
+    (--position/--rotation/--vehicle-pose) are the launcher's, so they are taken
+    out first; returns that pose (empty when none was given)."""
+    if getattr(args, "script_args", None):
+        try:
+            cfg.scripts.args = scripts.split_args(args.script_args)
+        except ValueError as exc:
+            raise config.ConfigError(
+                f"--script-args {args.script_args!r}: {exc}"
+            ) from exc
+    pose = poseargs.Pose()
+    if cfg.scripts.args:
+        try:
+            cfg.scripts.args, pose = poseargs.extract(
+                cfg.scripts.args, cfg.sitl.vehicles
+            )
+        except poseargs.PoseError as exc:
+            raise config.ConfigError(str(exc)) from exc
+    return pose
+
+
+def _apply_window_options(
+    cfg: config.Config, args: argparse.Namespace
+) -> None:
+    """--resolution and --fullscreen: the size and mode of the Unreal window."""
+    if args.resolution:
+        _override_resolution(cfg, args.resolution)
+    if args.fullscreen:
+        cfg.unreal.windowed = False
+
+
 # === SCENE PREPARATION ========================================================
 
 
@@ -336,37 +388,9 @@ def cmd_up(cfg: config.Config, args: argparse.Namespace) -> int:
     """`mrrsim up` (and `run`): apply the options to the settings, prepare the
     scene, then start a Session that runs everything. Returns the session's exit
     code, or 2 when there is no script to run."""
-    script_info = (
-        _override_script(cfg, args.script, getattr(args, "project", None))
-        if args.script
-        else None
-    )
-    if args.vehicles is not None:
-        cfg.sitl.vehicles = args.vehicles
-    elif script_info is not None and script_info.vehicles:
-        cfg.sitl.vehicles = script_info.vehicles
-        print(f"{script_info.name} asks for {script_info.vehicles} vehicle(s)")
-    if getattr(args, "script_args", None):
-        try:
-            cfg.scripts.args = scripts.split_args(args.script_args)
-        except ValueError as exc:
-            raise config.ConfigError(
-                f"--script-args {args.script_args!r}: {exc}"
-            ) from exc
-    pose = poseargs.Pose()
-    # --position/--rotation/--vehicle-pose are the launcher's: the script never
-    # gets them
-    if cfg.scripts.args:
-        try:
-            cfg.scripts.args, pose = poseargs.extract(
-                cfg.scripts.args, cfg.sitl.vehicles
-            )
-        except poseargs.PoseError as exc:
-            raise config.ConfigError(str(exc)) from exc
-    if args.resolution:
-        _override_resolution(cfg, args.resolution)
-    if args.fullscreen:
-        cfg.unreal.windowed = False
+    _apply_script_and_vehicles(cfg, args)
+    pose = _apply_script_arguments(cfg, args)
+    _apply_window_options(cfg, args)
     cfg.validate()
     _prepare_scene(cfg, args, pose)
     if getattr(args, "stop_file", None):
