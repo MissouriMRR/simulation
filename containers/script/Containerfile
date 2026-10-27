@@ -1,0 +1,84 @@
+# Python 3.12 + DroneKit environment for student scripts (and the scene loader).
+#
+# Two build targets from one file:
+#   runtime  DroneKit + pymavlink only (~small). The default for student scripts.
+#   airsim   runtime + the Project AirSim Python client + scene_loader.py (and the camera relay it runs). Used by the
+#            launcher to load the scene, and by scripts that need camera/LiDAR/etc.
+#
+# pymavlink comes from the MRR package index (see requirements.txt), not from PyPI.
+#
+# DroneKit is the team's own build of 2.9.2 (see requirements.txt): PyPI's 2.9.2 fails on Python 3.10+.
+# The airsim image also has the packages of requirements-airsim.txt, which the team's flight code imports.
+# The base is an ARG so it can be swapped or mirrored (for example to ghcr.io).
+#
+# Build:  mrrsim images build script        (or: podman build --target runtime -t ... .)
+
+ARG PYTHON_IMAGE=docker.io/library/python:3.12-slim-bookworm
+
+# ------------------------------------------------------------------ builders
+FROM ${PYTHON_IMAGE} AS builder
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential git \
+ && rm -rf /var/lib/apt/lists/*
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
+RUN python -W ignore -c "import sys, dronekit, pymavlink; print('dronekit imports on Python', sys.version.split()[0])"
+
+FROM builder AS builder-airsim
+ARG PROJECTAIRSIM_REPO=https://github.com/iamaisim/ProjectAirSim.git
+# Pin to a commit SHA for reproducible builds.
+ARG PROJECTAIRSIM_REF=main
+# Only the Python client is needed (about 1 MB), not the repository (a tarball of it is 646 MB).
+# fetch_client.py lists that folder from a blobless clone and downloads just its files, checking
+# each against its git hash; see its docstring for why `git sparse-checkout` is not used.
+COPY fetch_client.py /tmp/fetch_client.py
+RUN python /tmp/fetch_client.py "${PROJECTAIRSIM_REPO}" "${PROJECTAIRSIM_REF}" client/python/projectairsim /opt/projectairsim
+# If LiDAR is not needed and open3d fails to resolve, remove it from the client's
+# dependencies before this step (the same open3d issue as in the uv notes).
+RUN pip install /opt/projectairsim
+# What the team's flight code imports besides DroneKit (utm, scipy, shapely, aiohttp, onnxruntime, ...).
+COPY requirements-airsim.txt /tmp/requirements-airsim.txt
+RUN pip install -r /tmp/requirements-airsim.txt
+# The old AirSim client the flight code imports as `airsim` (a fork that installs cleanly; pinned to a commit).
+ARG AIRSIM_FORK_REPO=https://github.com/heitmeih/AirSim-fixed-pyinstall.git
+ARG AIRSIM_FORK_REF=b6775141d719db509d07e0e27d589b2ab9b709c3
+RUN python /tmp/fetch_client.py "${AIRSIM_FORK_REPO}" "${AIRSIM_FORK_REF}" PythonClient /opt/airsim-fork \
+ && pip install /opt/airsim-fork
+
+# ------------------------------------------------------------------ runtimes
+FROM ${PYTHON_IMAGE} AS base
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+# Student scripts are mounted read-only at /work; anything they write goes to /out.
+WORKDIR /work
+# The receiver for the pictures a simulator camera sends over UDP (Vehicles tab); the launcher puts this folder on the
+# script's PYTHONPATH, so `from mrrsim_camera import CameraReceiver` works in any script.
+COPY mrrsim_camera.py /opt/mrrsim/lib/mrrsim_camera.py
+
+FROM base AS runtime
+LABEL org.opencontainers.image.title="mrrsim-script" mrrsim.variant="runtime"
+COPY --from=builder /opt/venv /opt/venv
+CMD ["python", "--version"]
+
+FROM base AS airsim
+LABEL org.opencontainers.image.title="mrrsim-script" mrrsim.variant="airsim"
+# OpenCV (a Project AirSim client dependency) links against these system libraries, which the slim
+# base lacks; without them `import cv2`, and so `import projectairsim`, fails with
+# "libxcb.so.1: cannot open shared object file". Found with ldd plus an import check of every
+# installed module: nothing else was missing. `mrrsim images test` re-runs that check.
+# libzbar0 is the ZBar barcode/QR library that the Python package pyzbar loads (pyzbar itself is added with
+# `mrrsim pip install pyzbar`, since not everyone needs it).
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 libsm6 libxext6 libxcb1 libzbar0 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=builder-airsim /opt/venv /opt/venv
+COPY scene_loader.py camera_relay.py /opt/mrrsim/
+# Checked here, not in the builder: OpenCV needs the system libraries installed above.
+RUN python -W ignore -c "import ctypes.util, utm, scipy, shapely, aiohttp, aiofiles, colorlog, onnxruntime, pyodm, airsim, siyi_sdk, cv2, numpy, dronekit, projectairsim; assert ctypes.util.find_library('zbar'), 'libzbar0 missing'; print('the flight code packages import, and the ZBar library is there')"
+CMD ["python", "--version"]

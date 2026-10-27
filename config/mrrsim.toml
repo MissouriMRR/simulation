@@ -1,0 +1,96 @@
+# MRRSimulator launcher configuration.
+# Relative paths resolve against THIS file's folder. Unknown keys are rejected, so typos
+# fail loudly instead of being ignored.
+
+[wsl]
+distro = "mrr"             # WSL2 distro that has rootless podman installed
+require_mirrored = true    # .wslconfig networkingMode=mirrored: Windows and WSL share 127.0.0.1
+use_init = true            # podman run --init (needs catatonit) so `podman stop` is prompt
+# Caps for the whole WSL VM (every container shares them), so Unreal keeps the rest of the machine.
+# They live in %USERPROFILE%\.wslconfig: `mrrsim wsl-config` writes them, then `wsl --shutdown`
+# applies them. "" / 0 = leave WSL's default (half of RAM, all cores). processors is clamped to half
+# of this machine's logical processors (at least 2) so a small laptop is not starved.
+memory = "4GB"
+processors = 4
+
+[unreal]
+# Run the Shipping exe directly. Windows\Simulation.exe is only a bootstrapper stub.
+exe = "../Windows/Simulation/Binaries/Win64/Simulation-Win64-Shipping.exe"
+# The command line is: -windowed|-fullscreen -ResX=<width> -ResY=<height> [-NoVSync] <args...>
+# A smaller window is also a smaller render, the cheapest way to speed up an integrated GPU.
+# Override per run with: mrrsim up --resolution 960x540
+# This is the ONLY thing that decides the window: before every start the launcher writes these values
+# (and windowed/fullscreen) into the display settings Unreal remembers, and when the streamed camera
+# of the scene is a different size it runs a copy of the scene with that camera set to this size.
+# Without both, Unreal resizes its window to the camera's size, and goes fullscreen if it last was,
+# when the vehicle spawns.
+width = 1280
+height = 720
+windowed = true
+vsync = false                    # false adds -NoVSync
+priority = "above_normal"        # Windows priority class: low | below_normal | normal | above_normal | high
+# Seconds Unreal gets to close after the close request before it is killed. A healthy close takes
+# ~1.5 s; about one shutdown in five hangs inside Project AirSim (a network thread spins on a closed
+# socket while the scene unloads), and waiting longer does not help.
+close_grace_s = 4
+# Before loading the scene the launcher waits until a process inside WSL can connect to Unreal. The
+# first time a copy of the exe runs, Windows Firewall asks to allow it, and until someone clicks Allow
+# WSL's connections are refused. Seconds to wait; 0 skips the wait.
+wsl_reach_timeout_s = 90
+args = ["-nosplash"]             # anything else, appended as it is
+host = "127.0.0.1"
+topic_port = 8989          # nng topics  (tcp://*:8989 in projectairsim_server.log)
+service_port = 8990        # nng services (tcp://*:8990)
+ready_timeout_s = 120
+
+[scene]
+image = "localhost/mrrsim-script:airsim"
+config_dir = "../sim_config"
+# TODO: copy the scene + robot .jsonc files into sim_config/ (see sim_config/README.md),
+# then set the scene file name here. Use "" to skip scene loading (scene loaded another way).
+scene = "scene_ardupilot_quadrotor.jsonc"
+hold = true                # keep the AirSim client connected until shutdown
+delay_s = 2.0
+load_timeout_s = 180
+
+[sitl]
+ardupilot_ref = "Copter-4.7.0"   # tag or full commit SHA; used by `mrrsim images build`
+image = ""                       # "" -> localhost/mrrsim-sitl:<ardupilot_ref lowercased>
+vehicles = 1
+model = "airsim-copter"
+home = "37.9490953,-91.7848293,0,0"   # lat,lon,alt,heading; must match the scene's home-geo-point
+speedup = 1
+sim_address = "127.0.0.1"
+gcs_out = "127.0.0.1:14550"      # SERIAL0 udpclient target, shared by all vehicles
+wipe = true
+synthetic_clock = false          # -S: a no-op in ArduPilot 4.7.0, only meaningful for older refs
+defaults = ""                    # "" -> image default (copter.parm,airsim-quadX.parm)
+extra_args = []
+health_timeout_s = 120
+stop_timeout_s = 5
+# ArduPilot's own flight logs (.BIN, for Mission Planner / MAVExplorer / UAV Log Viewer) are copied out of
+# the container at shutdown into <folder you ran mrrsim from>/<log_dir>/<session>/sitl-<i>/. SITL only
+# logs while armed, so a run that never arms saves nothing.
+save_logs = true
+log_dir = "logs"
+
+# ArduPilot parameter overrides, loaded after the frame defaults. The scene steps physics every
+# 3 ms (~333 Hz), so the gyro runs at ~334 Hz; the stock AirSim defaults want a 300 Hz loop, which
+# needs a >= 540 Hz gyro (1.8x) and an achieved loop >= 270 Hz (90%). Keep SCHED_LOOP_RATE at or
+# below (sim rate / 1.8), or shorten step-ns in the scene to run the loop faster.
+#
+# GPS1_TYPE = 100 selects ArduPilot's built-in simulated GPS. With the default (auto-detect, which
+# simulates a u-blox on a fake serial port) arming failed with "GPS 1: not healthy" even though the
+# GPS had a 3D fix. Doubling the GPS rate did not help (tried); the u-blox path's lag/jitter check
+# in a lock-stepped sim is the likely cause but was not confirmed. If a vehicle will not arm, run:
+#   ./mrrsim.cmd up --script diag_arming.py
+[sitl.params]
+SCHED_LOOP_RATE = 100
+GPS1_TYPE = 100
+
+[scripts]
+image = "localhost/mrrsim-script:runtime"   # use ...:airsim if the script imports projectairsim
+dir = "../scripts"
+main = "takeoff_land.py"
+args = []
+stop_grace_s = 25                # time a script gets after Ctrl+C (e.g. to LAND) before it is killed

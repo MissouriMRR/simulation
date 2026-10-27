@@ -1,0 +1,88 @@
+# ArduPilot Copter SITL for MRRSimulator.
+#
+# Slim two-stage build: compile arducopter at a PINNED ArduPilot ref, then ship only the
+# binary + default params (no source tree, no MAVProxy, no GUI libs).
+#
+# Build (from Windows):   mrrsim images build sitl [--ardupilot-ref Copter-4.7.0]
+# Build (by hand, in WSL): podman build -t localhost/mrrsim-sitl:copter-4.7.0 .
+#
+# GPL: ArduPilot is GPLv3. The exact source commit is recorded in /opt/ardupilot/COMMIT, and
+# every submodule commit in /opt/ardupilot/SOURCES.txt, inside the image; publish those
+# commits (or this Containerfile + the ref) alongside any image you distribute.
+
+ARG DEBIAN_IMAGE=docker.io/library/debian:bookworm-slim
+
+# ---------------------------------------------------------------- build stage
+FROM ${DEBIAN_IMAGE} AS build
+
+# A tag (Copter-4.7.0) or a full commit SHA. Prefer a SHA for releases: tags/branches move.
+ARG ARDUPILOT_REF=Copter-4.7.0
+ARG ARDUPILOT_REPO=https://github.com/ArduPilot/ardupilot.git
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential ca-certificates git python3 python3-dev python3-pip python3-venv \
+ && rm -rf /var/lib/apt/lists/*
+
+# empy must stay on 3.3.x: empy 4 breaks ArduPilot's code generators.
+RUN python3 -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-cache-dir "empy==3.3.4" future lxml pexpect pyserial setuptools
+ENV PATH=/opt/venv/bin:$PATH
+
+# Source: tarballs from codeload.github.com, NOT `git clone` / `git submodule update`. On the
+# network this was developed on, git against github.com ran at ~80 KiB/s while a plain HTTPS
+# download ran at ~5.8 MB/s. fetch_source.py uses git only for tiny commit/tree metadata (to learn
+# the exact commit and each submodule's pinned commit); see the script for the details.
+#
+# SKIP_SUBMODULES: hardware-only submodules a SITL build never compiles. ChibiOS (ARM boards) and
+# ESP-IDF (ESP32, with dozens of nested submodules of its own) are by far the largest. It is a
+# blocklist, so any submodule added later is still fetched. Set SKIP_SUBMODULES="" to fetch
+# everything if `waf configure` ever reports a missing module.
+COPY fetch_source.py /usr/local/bin/fetch_source.py
+ARG SKIP_SUBMODULES='^modules/(ChibiOS|esp_idf|CrashDebug)$'
+WORKDIR /src
+RUN python3 /usr/local/bin/fetch_source.py \
+        --repo "${ARDUPILOT_REPO}" --ref "${ARDUPILOT_REF}" --dest /src \
+        --skip "${SKIP_SUBMODULES}" --jobs 4
+
+# --no-submodule-update: waf otherwise runs `git submodule status/update` on every submodule it
+# needs. The tree was assembled from tarballs, so git has no submodule bookkeeping and an update
+# would try to clone from GitHub, which is exactly what this build avoids. (waf also turns this
+# off by itself when there is no .git; we keep a .git so the firmware embeds the real commit hash.)
+RUN ./waf configure --board sitl --no-submodule-update && ./waf copter
+
+# Collect what the runtime image needs. The test -f lines fail the build early (with a
+# readable message) if this ArduPilot version lacks the AirSim default params.
+# COMMIT is the exact ArduPilot commit; SOURCES.txt lists every submodule commit too (the record
+# for a GPL source offer).
+RUN mkdir -p /out \
+ && test -x build/sitl/bin/arducopter \
+ && for f in copter.parm airsim-quadX.parm; do \
+        test -f "Tools/autotest/default_params/$f" \
+        || { echo "ERROR: default_params/$f is missing in ${ARDUPILOT_REF}" >&2; exit 1; }; \
+    done \
+ && cp build/sitl/bin/arducopter /out/arducopter \
+ && cp -r Tools/autotest/default_params /out/params \
+ && (git rev-parse HEAD 2>/dev/null || echo "${ARDUPILOT_REF} (commit not recorded)") > /out/COMMIT \
+ && (cp .mrrsim-sources.txt /out/SOURCES.txt 2>/dev/null || true) \
+ && (cp COPYING.txt /out/COPYING.txt 2>/dev/null || true)
+
+# -------------------------------------------------------------- runtime stage
+FROM ${DEBIAN_IMAGE} AS runtime
+
+ARG ARDUPILOT_REF=Copter-4.7.0
+LABEL org.opencontainers.image.title="mrrsim-sitl" \
+      org.opencontainers.image.description="ArduPilot Copter SITL (AirSim backend) for MRRSimulator" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.source="https://github.com/ArduPilot/ardupilot" \
+      mrrsim.ardupilot.ref="${ARDUPILOT_REF}"
+
+COPY --from=build /out/ /opt/ardupilot/
+COPY entrypoint.sh /usr/local/bin/mrrsim-sitl
+# sed: a Windows checkout may have turned the LF endings into CRLF, which breaks the shebang.
+RUN sed -i 's/\r$//' /usr/local/bin/mrrsim-sitl && chmod +x /usr/local/bin/mrrsim-sitl /opt/ardupilot/arducopter
+
+# SITL writes eeprom.bin, logs/ and mav.parm into its working directory.
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/mrrsim-sitl"]

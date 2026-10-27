@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mrrsim"
+dynamic = ["version"]         # not written here: see launcher/mrrsim/__init__.py (the one copy is in MRRSimulationLauncher.iss)
+description = "MRRSimulator launcher: Unreal (native Windows) + ArduPilot SITL and student scripts (podman in WSL2)"
+requires-python = ">=3.11"   # tomllib; the plan is a PyInstaller build on 3.12
+dependencies = []            # stdlib only, so it freezes small and starts fast
+
+[project.scripts]
+mrrsim = "mrrsim.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "mrrsim.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["mrrsim*"]
