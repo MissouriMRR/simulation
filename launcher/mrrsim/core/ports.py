@@ -14,9 +14,12 @@ module mirrors that so the launcher can connect and check for conflicts.
 
 from __future__ import annotations
 
+import errno
 import socket
+import subprocess
 from dataclasses import dataclass
 from typing import Iterable
+
 
 # === CONSTANTS ================================================================
 
@@ -63,7 +66,9 @@ def vehicle_ports(index: int) -> VehiclePorts:
     """The ports of vehicle `index` (counted from 0); ValueError when it is
     outside 0..MAX_VEHICLES-1."""
     if not 0 <= index < MAX_VEHICLES:
-        raise ValueError(f"vehicle index {index} out of range 0..{MAX_VEHICLES - 1}")
+        raise ValueError(
+            f"vehicle index {index} out of range 0..{MAX_VEHICLES - 1}"
+        )
     offset = STEP * index
     return VehiclePorts(
         index=index,
@@ -83,21 +88,63 @@ def all_vehicle_ports(count: int) -> list[VehiclePorts]:
 # === WHO IS USING A PORT ======================================================
 
 
-def port_is_free(port: int, proto: str = "tcp", host: str = "127.0.0.1") -> bool:
-    """Best-effort bind test."""
-    kind = socket.SOCK_STREAM if proto == "tcp" else socket.SOCK_DGRAM
-    with socket.socket(socket.AF_INET, kind) as sock:
+# The addresses a program can hold a port on. Holding it on one does not stop
+# another program binding it on a different one (measured on Windows: a port
+# held on 0.0.0.0 or :: can still be bound on 127.0.0.1, and a port held on
+# 127.0.0.1 can still be bound on 0.0.0.0), so a port is only free when every
+# one of them is.
+ADDRESSES = (
+    (socket.AF_INET, "127.0.0.1"),
+    (socket.AF_INET, "0.0.0.0"),
+    (socket.AF_INET6, "::"),
+)
+# Errors that mean "somebody has it": address in use, access denied (a port
+# held exclusively), and their Windows socket error numbers.
+_IN_USE = {errno.EADDRINUSE, errno.EACCES, 10048, 10013}
+
+
+def _can_bind(family: int, host: str, port: int, kind: int) -> bool | None:
+    """True if the port can be bound on this address, False if something has
+    it, None if this computer cannot tell (no IPv6, or the address does not
+    exist here)."""
+    try:
+        sock = socket.socket(family, kind)
+    except OSError:
+        return None
+    with sock:
         try:
             sock.bind((host, port))
-        except OSError:
-            return False
+        except OSError as exc:
+            if family == socket.AF_INET or exc.errno in _IN_USE:
+                return False
+            return None
     return True
+
+
+def port_is_free(
+    port: int, proto: str = "tcp", host: str | None = None
+) -> bool:
+    """Best-effort bind test on every address (`ADDRESSES`), or on just `host`.
+    In WSL mirrored mode WSL and Windows share one port space."""
+    kind = socket.SOCK_STREAM if proto == "tcp" else socket.SOCK_DGRAM
+    if host is None:
+        addresses = ADDRESSES
+    else:
+        addresses = (
+            (socket.AF_INET6 if ":" in host else socket.AF_INET, host),
+        )
+    return all(
+        _can_bind(family, address, port, kind) is not False
+        for family, address in addresses
+    )
 
 
 def busy_ports(ports: Iterable[tuple[int, str]]) -> list[tuple[int, str]]:
     """Of these (port, protocol) pairs, the ones that cannot be used right now
     because something already has them."""
-    return [(port, proto) for port, proto in ports if not port_is_free(port, proto)]
+    return [
+        (port, proto) for port, proto in ports if not port_is_free(port, proto)
+    ]
 
 
 def parse_netstat(text: str) -> dict[tuple[str, int], int]:
@@ -123,7 +170,6 @@ def who_uses(
 ) -> dict[tuple[int, str], str]:
     """(port, protocol) -> "Discord.exe (pid 1234)" for the ports somebody is
     using. Windows only; best effort."""
-    import subprocess
 
     wanted = list(ports_in_use)
     names: dict[tuple[int, str], str] = {}
