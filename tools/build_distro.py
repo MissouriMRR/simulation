@@ -152,6 +152,7 @@ def stamp_distro(cfg: config.Config, output: Path) -> str:
     provision = (ROOT / "tools" / "distro" / "provision.sh").read_bytes()
     digest = hashlib.sha256(",".join(sorted(set(ids))).encode() + BASE_SHA256.encode() + provision).hexdigest()[:12]
     run_in(BUILD_DISTRO, ["sh", "-c", f"echo {digest} > {STAMP_FILE}"], user="root")
+    output.parent.mkdir(parents=True, exist_ok=True)  # payload/ is not in git: a fresh clone has no such folder
     include = output.parent / "distro_version.iss"
     include.write_text(f'#define DistroVersion "{digest}"\n', encoding="utf-8", newline="\n")
     say(f"distro version {digest} (written to {include.name})")
@@ -221,6 +222,7 @@ def main() -> int:
     args = parser.parse_args()
     cfg = config.load(paths.find_config(None))
     args.work.mkdir(parents=True, exist_ok=True)
+    args.output.parent.mkdir(parents=True, exist_ok=True)  # fail now, not after the images are loaded
 
     if not args.verify_only:
         base = download_base(args.work)
