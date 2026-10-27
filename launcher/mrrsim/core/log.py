@@ -10,24 +10,28 @@ from pathlib import Path
 
 
 LOG = logging.getLogger("mrrsim")
+LOG.setLevel(logging.DEBUG)  # the handlers choose what is shown
+LOG.propagate = False  # only our own handlers print, whatever the root logger has
 
 _CONSOLE_FMT = "%(asctime)s %(levelname)-5s %(message)s"
 _FILE_FMT = "%(asctime)s.%(msecs)03d %(levelname)-5s %(message)s"
+
+_console: logging.Handler | None = None  # the one console handler, once set up
 
 
 # === CONSOLE ==================================================================
 
 
 def setup(verbose: bool = False) -> None:
-    """Install the console handler (idempotent)."""
-    LOG.setLevel(logging.DEBUG)
-    if any(getattr(h, "_mrrsim_console", False) for h in LOG.handlers):
-        return
-    handler = logging.StreamHandler(sys.stdout)
-    handler._mrrsim_console = True  # type: ignore[attr-defined]
-    handler.setLevel(logging.DEBUG if verbose else logging.INFO)
-    handler.setFormatter(logging.Formatter(_CONSOLE_FMT, datefmt="%H:%M:%S"))
-    LOG.addHandler(handler)
+    """Show the log on the console: INFO and above, or everything with
+    `verbose`. Calling it again does not add a second handler; it only changes
+    the level."""
+    global _console
+    if _console is None or _console not in LOG.handlers:
+        _console = logging.StreamHandler(sys.stdout)
+        _console.setFormatter(logging.Formatter(_CONSOLE_FMT, datefmt="%H:%M:%S"))
+        LOG.addHandler(_console)
+    _console.setLevel(logging.DEBUG if verbose else logging.INFO)
 
 
 # === SESSION LOG FILE =========================================================

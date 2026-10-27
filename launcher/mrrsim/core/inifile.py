@@ -8,15 +8,23 @@ from __future__ import annotations
 # === SETTING KEYS =============================================================
 
 
+def _section_name(line: str) -> str | None:
+    """The lower-cased name in a `[section]` header line, ignoring anything
+    after the `]` (a comment). None if the line is not a header."""
+    text = line.strip()
+    if not text.startswith("[") or "]" not in text:
+        return None
+    return text[1 : text.index("]")].lower()
+
+
 def set_keys(text: str, section: str, values: dict[str, object]) -> str:
     """Return `text` with `[section]` holding `values`. A key already there (any
     capitalisation) is replaced in place, missing ones are added at the end of
     the section, and the section is created if it does not exist."""
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
-    wanted = f"[{section}]".lower()
     start = next(
-        (i for i, line in enumerate(lines) if line.strip().lower() == wanted),
+        (i for i, line in enumerate(lines) if _section_name(line) == section.lower()),
         None,
     )
     if start is None:

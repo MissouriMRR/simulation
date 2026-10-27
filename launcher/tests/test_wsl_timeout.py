@@ -89,7 +89,7 @@ class StuckWsl(unittest.TestCase):
         calls = []
         with mock.patch.object(wsl, "warm_up", return_value=("timeout", 180.0)), \
                 mock.patch.object(podman.Podman, "run", side_effect=lambda *a, **k: calls.append(a) or subprocess.CompletedProcess([], 0, "", "")), \
-                self.assertLogs(level="INFO") as logs:
+                self.assertLogs("mrrsim", level="INFO") as logs:
             code = sess.up(script=True, keep=False, unreal=False, scene=False)
         text = "\n".join(logs.output)
         self.assertEqual(code, 2)
@@ -101,7 +101,7 @@ class StuckWsl(unittest.TestCase):
         sess = session.Session(self.cfg, dry_run=True)
         with mock.patch.object(wsl, "warm_up", return_value=("ok", 45.0)), mock.patch.object(session.Session, "_preflight",
                                                                                             side_effect=session.SessionError("stop here")), \
-                mock.patch.object(podman.Podman, "ps", return_value=[]), self.assertLogs(level="INFO") as logs:
+                mock.patch.object(podman.Podman, "ps", return_value=[]), self.assertLogs("mrrsim", level="INFO") as logs:
             sess.up(script=False, keep=False, unreal=False, scene=False)
         text = "\n".join(logs.output)
         self.assertIn("Checking that WSL is responsive", text)
@@ -121,7 +121,7 @@ class StuckWsl(unittest.TestCase):
         argv = ["-c", str(paths.repo_root() / "config" / "mrrsim.toml"), "run", str(script), "--no-unreal", "--no-scene"]
         with mock.patch.object(wsl, "warm_up", return_value=("timeout", 180.0)), \
                 mock.patch.object(wsl.subprocess, "run", side_effect=timeout_error), \
-                redirect_stdout(io.StringIO()), self.assertLogs(level="INFO"):
+                redirect_stdout(io.StringIO()), self.assertLogs("mrrsim", level="INFO"):
             code = cli.main(argv)
         self.assertEqual(code, 2)
 
