@@ -20,8 +20,12 @@ build/
 # the distro payload built by tools/build_distro.py
 /payload/
 
+# IDEs
 .zed/
+
+# LLMs
 .claude/
+CLAUDE.md
 
 # written by tools/sync_version.py from the installer script's AppVersion
 /launcher/mrrsim/_version.py
