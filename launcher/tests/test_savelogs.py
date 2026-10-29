@@ -11,6 +11,7 @@ class FakePodman:
 
     def __init__(self, logs: dict[str, list[str]], dry_run: bool = False) -> None:
         self.logs = logs
+        self.distro = "mrr"
         self.dry_run = dry_run
         self.calls: list[tuple[str, str, str]] = []
 
@@ -33,7 +34,7 @@ class SaveSitlLogs(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name) / "logs" / "s1"
         self.addCleanup(self._tmp.cleanup)
-        patcher = mock.patch.object(wsl, "to_wsl_path", side_effect=str)
+        patcher = mock.patch.object(wsl, "to_wsl_path", side_effect=lambda path, distro=None: str(path))
         patcher.start()
         self.addCleanup(patcher.stop)
 

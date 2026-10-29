@@ -729,7 +729,7 @@ def cmd_images(cfg: config.Config, args: argparse.Namespace) -> int:
     for build_arg in args.build_arg:
         common += ["--build-arg", build_arg]
     if args.which in ("sitl", "all"):
-        context = wsl.to_wsl_path(containers / "sitl")
+        context = wsl.to_wsl_path(containers / "sitl", cfg.wsl.distro)
         rc = podman.build(
             [
                 *common,
@@ -743,7 +743,7 @@ def cmd_images(cfg: config.Config, args: argparse.Namespace) -> int:
         if rc != 0:
             return rc
     if args.which in ("script", "all"):
-        context = wsl.to_wsl_path(containers / "script")
+        context = wsl.to_wsl_path(containers / "script", cfg.wsl.distro)
         extra = (
             ["--build-arg", f"PROJECTAIRSIM_REF={args.projectairsim_ref}"]
             if args.projectairsim_ref

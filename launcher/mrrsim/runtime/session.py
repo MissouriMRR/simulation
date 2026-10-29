@@ -111,9 +111,9 @@ def save_sitl_logs(podman: Podman, names: list[str], dest_root: Path) -> list[Pa
             LOG.info("[dry-run] would copy %s:%s to %s", name, SITL_LOG_SRC, dest)
             continue
         dest.mkdir(parents=True, exist_ok=True)
-        if podman.copy_from(name, SITL_LOG_SRC, wsl.to_wsl_path(dest)) and any(
-            dest.iterdir()
-        ):
+        if podman.copy_from(
+            name, SITL_LOG_SRC, wsl.to_wsl_path(dest, podman.distro)
+        ) and any(dest.iterdir()):
             saved.append(dest)
         else:
             try:
@@ -434,7 +434,13 @@ class Session:
             SCENE_NAME,
             command=command,
             env={"MRRSIM_CAMERA_STREAMS": json.dumps(streams)} if streams else None,
-            mounts=[Mount(wsl.to_wsl_path(cfg.config_dir), "/sim_config", "ro")],
+            mounts=[
+                Mount(
+                    wsl.to_wsl_path(cfg.config_dir, self.cfg.wsl.distro),
+                    "/sim_config",
+                    "ro",
+                )
+            ],
             labels=self._labels(),
             # a one-shot loader is kept (not --rm) so its last log lines can be
             # read
@@ -652,14 +658,16 @@ class Session:
                         f"{self.overlay_dir}: {made.stderr.strip()}"
                     )
         mounts = [
-            Mount(wsl.to_wsl_path(sc.dir), "/work", work_mode),
-            Mount(wsl.to_wsl_path(self.dir), "/out", "rw"),
+            Mount(wsl.to_wsl_path(sc.dir, self.cfg.wsl.distro), "/work", work_mode),
+            Mount(wsl.to_wsl_path(self.dir, self.cfg.wsl.distro), "/out", "rw"),
         ]
         extra = paths.packages_dir()  # packages added with `mrrsim pip install`
         if extra.is_dir() and any(
             p.name != pipinstall.DRIVER_NAME for p in extra.iterdir()
         ):
-            mounts.append(Mount(wsl.to_wsl_path(extra), "/packages", "ro"))
+            mounts.append(
+                Mount(wsl.to_wsl_path(extra, self.cfg.wsl.distro), "/packages", "ro")
+            )
         return mounts
 
     def _wait_for_script(self, proc) -> bool:
@@ -708,7 +716,7 @@ class Session:
     def _keep_script_writes(self) -> None:
         """Copy what the script wrote into its folder to
         <session>/project-writes, then delete the scratch layer."""
-        target = wsl.to_wsl_path(self.dir) + "/project-writes"
+        target = wsl.to_wsl_path(self.dir, self.cfg.wsl.distro) + "/project-writes"
         layer = self.overlay_dir
         copy = wsl.run(
             self.cfg.wsl.distro,
