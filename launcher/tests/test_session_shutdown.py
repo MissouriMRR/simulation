@@ -80,6 +80,17 @@ class Shutdown(unittest.TestCase):
         self.assertIn("WSL is not answering", text)
         self.assertIn("containers not stopped (WSL not answering)", text)
 
+    def test_unreal_is_named_with_its_pid_and_reported_done_when_it_exits(self):
+        self.sess.unreal = mock.Mock(pid=4242, stop=mock.Mock(return_value=True))
+        text = self.down()
+        self.assertIn("stopping Unreal (pid 4242): done", text)
+
+    def test_unreal_that_will_not_exit_is_reported_as_failed(self):
+        self.sess.unreal = mock.Mock(pid=4242, stop=mock.Mock(return_value=False))
+        text = self.down()
+        self.assertIn("stopping Unreal (pid 4242): FAILED", text)
+        self.assertIn("shut down with 1 problem(s)", text)
+
     def test_the_second_call_does_nothing(self):
         self.down()
         with self.assertNoLogs("mrrsim", level="INFO"):

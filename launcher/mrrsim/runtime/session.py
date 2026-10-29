@@ -204,7 +204,11 @@ class Session:
                 lambda: self.podman.stop([SCENE_NAME], timeout=5),
             )
         if self.unreal is not None:
-            self._safe("stopping Unreal", self.unreal.stop)
+            pid = self.unreal.pid
+            self._safe(
+                "stopping Unreal" + (f" (pid {pid})" if pid is not None else ""),
+                self.unreal.stop,
+            )
         if not self._wsl_stuck:
             self._safe(
                 f"stopping the SITL container(s) ({', '.join(names)})",
