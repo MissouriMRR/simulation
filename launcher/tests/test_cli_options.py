@@ -8,6 +8,7 @@ from unittest import mock
 
 from mrrsim import cli
 from mrrsim.core import config, paths
+from mrrsim.runtime.podman import PodmanError
 
 
 def default_config() -> config.Config:
@@ -129,6 +130,18 @@ class LoadingSteps(unittest.TestCase):
             config._resolve_paths(cfg)
             self.assertEqual(cfg.scripts.dir, (folder / "scripts").resolve())
             self.assertTrue(cfg.unreal.exe.is_absolute() and cfg.scene.config_dir.is_absolute())
+
+
+class PodmanFailures(unittest.TestCase):
+    def test_a_podman_command_that_fails_is_an_error_message_and_exit_code_1(self):
+        failure = PodmanError("podman rm failed (exit 125): container is busy")
+        with mock.patch.object(cli.paths, "find_config", return_value=Path("c.toml")), \
+                mock.patch.object(cli.config, "load", return_value=mock.Mock()), \
+                mock.patch.object(cli, "cmd_status", side_effect=failure), \
+                mock.patch("sys.stderr") as stderr:
+            self.assertEqual(cli.main(["status"]), 1)
+        printed = "".join(call.args[0] for call in stderr.write.call_args_list)
+        self.assertIn("error: podman rm failed (exit 125): container is busy", printed)
 
 
 if __name__ == "__main__":

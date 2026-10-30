@@ -64,6 +64,12 @@ class Shutdown(unittest.TestCase):
         self.assertIn("removing the containers: done", text)
         self.assertIn("shut down with 3 problem(s)", text)
 
+    def test_containers_podman_will_not_remove_are_a_reported_problem(self):
+        self.podman.reap.side_effect = PodmanError("podman rm failed (exit 125): busy")
+        text = self.down()
+        self.assertIn("removing the containers: FAILED: podman rm failed (exit 125): busy", text)
+        self.assertIn("shut down with 1 problem(s)", text)
+
     def test_every_log_reader_is_stopped_even_if_one_fails(self):
         bad = mock.Mock(stop=mock.Mock(side_effect=OSError("handle gone")))
         good = mock.Mock()
