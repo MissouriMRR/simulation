@@ -33,6 +33,12 @@ def containers_dir() -> Path:
     return _app_dir() / "containers"
 
 
+def app_icon() -> Path:
+    """The program's icon (a Windows .ico): `assets` next to the exe when
+    installed, else in the repository."""
+    return _app_dir() / "assets" / "mrrsim.ico"
+
+
 def find_config(explicit: str | None = None) -> Path:
     """The settings file to use: the one named by --config, else MRRSIM_CONFIG,
     else the first mrrsim.toml found in the current folder, its config folder,
