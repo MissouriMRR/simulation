@@ -68,6 +68,7 @@ OutputBaseFilename={#AppName}-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=assets\mrrsim.ico
 UninstallDisplayIcon={app}\{#LauncherExe}
 
 [Messages]
@@ -78,6 +79,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
 Source: "{#LauncherDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "config\mrrsim.toml"; DestName: "shipped-mrrsim.toml"; Flags: dontcopy
 Source: "scripts\*"; DestDir: "{app}\scripts"; Excludes: "__pycache__"; Flags: ignoreversion recursesubdirs createallsubdirs
