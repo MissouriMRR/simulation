@@ -27,13 +27,19 @@ class RunTimeout(unittest.TestCase):
         self.assertIn("30 s", result.stderr)
         self.assertEqual(result.stdout, "")
 
-    def test_podman_reads_treat_it_as_nothing_found(self):
+    def test_listing_reads_treat_it_as_nothing_found(self):
         with mock.patch.object(wsl.subprocess, "run", side_effect=timeout_error):
             tool = podman.Podman("mrr")
             self.assertEqual(tool.ps(), [])
             self.assertEqual(tool.reap(), [])
-            self.assertFalse(tool.image_exists("x"))
-            self.assertIsNone(tool.version())
+
+    def test_the_questions_whose_no_would_be_misleading_say_that_wsl_did_not_answer(self):
+        with mock.patch.object(wsl.subprocess, "run", side_effect=timeout_error):
+            tool = podman.Podman("mrr")
+            for ask in (lambda: tool.image_exists("x"), tool.version):
+                with self.assertRaises(podman.PodmanError) as caught:
+                    ask()
+                self.assertIn("no answer from WSL", str(caught.exception))
 
     def test_podman_commands_that_must_succeed_explain_the_timeout(self):
         with mock.patch.object(wsl.subprocess, "run", side_effect=timeout_error):

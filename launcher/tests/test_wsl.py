@@ -116,6 +116,31 @@ class Distros(unittest.TestCase):
             with mock.patch.object(wsl, "wsl_command", return_value=result):
                 self.assertEqual(wsl.list_distros(), [])
 
+    def test_a_wsl_that_did_not_answer_gives_its_reason_instead_of_a_list(self):
+        for code, reason in (
+            (wsl.TIMED_OUT, "no answer from WSL within 30 s"),
+            (wsl.NOT_FOUND, "could not run wsl.exe: [WinError 2]"),
+        ):
+            with mock.patch.object(
+                wsl, "wsl_command", return_value=completed(code, "", reason + "\n")
+            ):
+                self.assertEqual(wsl.query_distros(), ([], reason))
+
+    def test_a_wsl_that_answers_it_has_nothing_to_list_is_not_a_problem(self):
+        with mock.patch.object(
+            wsl,
+            "wsl_command",
+            return_value=completed(1, "", "no installed distributions"),
+        ):
+            self.assertEqual(wsl.query_distros(), ([], ""))
+
+    def test_the_table_comes_with_no_problem(self):
+        out = "  NAME   STATE   VERSION\n* mrr    Running 2\n"
+        with mock.patch.object(wsl, "wsl_command", return_value=completed(0, out)):
+            self.assertEqual(
+                wsl.query_distros(), ([wsl.Distro("mrr", "Running", 2, True)], "")
+            )
+
     def test_list_distros_reads_the_table(self):
         out = "  NAME   STATE   VERSION\n* mrr    Running 2\n"
         with mock.patch.object(

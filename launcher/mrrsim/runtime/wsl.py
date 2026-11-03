@@ -165,10 +165,19 @@ def parse_distro_list(text: str) -> list[Distro]:
     return distros
 
 
+def query_distros() -> tuple[list[Distro], str]:
+    """The installed distributions and, instead of them, the reason when
+    wsl.exe could not be run or did not answer ("" otherwise). A WSL that
+    answers that it has nothing to list is not a problem."""
+    result = wsl_command(["-l", "-v"])
+    if result.returncode in (TIMED_OUT, NOT_FOUND):
+        return [], result.stderr.strip()
+    return (parse_distro_list(result.stdout) if result.returncode == 0 else []), ""
+
+
 def list_distros() -> list[Distro]:
     """The installed distributions; empty if `wsl.exe -l -v` fails."""
-    result = wsl_command(["-l", "-v"])
-    return parse_distro_list(result.stdout) if result.returncode == 0 else []
+    return query_distros()[0]
 
 
 # === WSL SETTINGS =============================================================

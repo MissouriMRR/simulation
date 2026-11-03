@@ -164,6 +164,15 @@ class Podman:
             )
         return result
 
+    def _asked(self, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        """Run a question for podman. If WSL itself did not answer (it timed out
+        or could not be run) that is a PodmanError, so it is never taken for
+        podman's own "no"."""
+        result = self.run(args, timeout=30, check=False)
+        if result.returncode in (wsl.TIMED_OUT, wsl.NOT_FOUND):
+            raise PodmanError(f"podman {args[0]}: {result.stderr.strip()}")
+        return result
+
     def _launch(self, start: Callable[..., Any], args: Sequence[str], **kwargs) -> Any:
         """Start `podman <args>` with `start` (wsl.popen or wsl.call). A wsl.exe
         that cannot be started is a PodmanError, like a command that fails in
@@ -178,8 +187,9 @@ class Podman:
     # === READS ================================================================
 
     def version(self) -> str | None:
-        """The output of `podman --version`, or None if it did not answer."""
-        result = self.run(["--version"], timeout=30, check=False)
+        """The output of `podman --version`, or None if podman did not answer.
+        Raises PodmanError if WSL did not answer at all."""
+        result = self._asked(["--version"])
         return result.stdout.strip() if result.returncode == 0 else None
 
     def rootless(self) -> bool | None:
@@ -202,10 +212,9 @@ class Podman:
         return wsl.run(self.distro, ["sh", "-c", probe], timeout=30).returncode == 0
 
     def image_exists(self, ref: str) -> bool:
-        """Is the image `ref` in podman's local storage?"""
-        return (
-            self.run(["image", "exists", ref], timeout=30, check=False).returncode == 0
-        )
+        """Is the image `ref` in podman's local storage? Raises PodmanError if
+        WSL did not answer at all."""
+        return self._asked(["image", "exists", ref]).returncode == 0
 
     def is_running(self, name: str) -> bool:
         """Is the container `name` running right now?"""

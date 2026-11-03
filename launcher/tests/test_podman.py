@@ -101,6 +101,21 @@ class Asking(Fake):
         self.run.return_value = done(1)
         self.assertFalse(self.podman.has_init_binary())
 
+    def test_a_wsl_that_did_not_answer_is_an_error_not_podmans_no(self):
+        for code, text in ((wsl.TIMED_OUT, "no answer from WSL within 30 s"), (wsl.NOT_FOUND, "could not run wsl.exe")):
+            self.run.return_value = done(code, "", text + "\n")
+            with self.assertRaises(PodmanError) as caught:
+                self.podman.version()
+            self.assertEqual(str(caught.exception), f"podman --version: {text}")
+            with self.assertRaises(PodmanError) as caught:
+                self.podman.image_exists("img")
+            self.assertEqual(str(caught.exception), f"podman image: {text}")
+
+    def test_podman_that_answers_no_is_still_none_and_false(self):
+        self.run.return_value = done(125, "", "no such image")
+        self.assertIsNone(self.podman.version())
+        self.assertFalse(self.podman.image_exists("img"))
+
     def test_image_exists(self):
         self.assertTrue(self.podman.image_exists("img"))
         self.assertEqual(self.asked(), ["image", "exists", "img"])
