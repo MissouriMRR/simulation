@@ -182,6 +182,9 @@ class WaitHeartbeatOverTheWire(unittest.TestCase):
         server = self.serve([(0, v2_heartbeat(1))])
         ok, detail = health.wait_heartbeat("127.0.0.1", server.port, 1, timeout=0)
         self.assertFalse(ok)
+        end = time.monotonic() + 2  # the server thread counts it a moment later
+        while server.connections < 1 and time.monotonic() < end:
+            time.sleep(0.02)
         self.assertEqual(server.connections, 1)
         self.assertNotIn("nothing is listening", detail)
 

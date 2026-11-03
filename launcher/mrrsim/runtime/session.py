@@ -294,7 +294,13 @@ class Session:
                 )
             self.dir.mkdir(parents=True, exist_ok=True)
             self._file_handler = attach_file(self.dir / "launcher.log")
-            self.job = JobObject()
+            try:
+                self.job = JobObject()
+            except OSError as exc:
+                raise SessionError(
+                    "could not create the Windows job that ends Unreal when "
+                    f"the launcher ends: {exc}"
+                ) from exc
         LOG.info(
             "session %s%s",
             self.id,

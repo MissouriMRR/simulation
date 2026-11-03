@@ -103,6 +103,35 @@ class Shutdown(unittest.TestCase):
             self.sess.down()
 
 
+class Beginning(unittest.TestCase):
+    def test_a_job_that_cannot_be_made_stops_the_run_with_a_clear_message(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict("os.environ", {"MRRSIM_DATA_DIR": tmp}),
+        ):
+            sess = session.Session(load())
+            sess.mutexes = mock.Mock(acquire=mock.Mock(return_value=True))
+            with (
+                mock.patch.object(
+                    session,
+                    "JobObject",
+                    side_effect=OSError(5, "CreateJobObjectW failed"),
+                ),
+                mock.patch.object(session, "attach_file", return_value=mock.Mock()),
+                mock.patch.object(session, "detach"),
+                mock.patch.object(sess, "down") as down,
+                self.assertLogs("mrrsim", level="ERROR") as logs,
+            ):
+                rc = sess.up(script=False, keep=False, unreal=False, scene=False)
+        self.assertEqual(rc, 2)
+        down.assert_called_once()  # whatever was started is still shut down
+        self.assertIn(
+            "could not create the Windows job that ends Unreal when the launcher "
+            "ends: [Errno 5] CreateJobObjectW failed",
+            "\n".join(logs.output),
+        )
+
+
 class RunState(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()

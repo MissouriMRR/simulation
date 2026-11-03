@@ -228,8 +228,11 @@ class UnrealProcess:
         except OSError as exc:
             self._close_log()
             raise UnrealError(f"could not start {self.cfg.exe}: {exc}") from exc
-        if job is not None:
-            job.assign(self.proc)
+        if job is not None and not job.assign(self.proc):
+            LOG.warning(
+                "Unreal is not in the launcher's Windows job, so it keeps "
+                "running if the launcher is killed (`mrrsim down` stops it)"
+            )
         LOG.info("started Unreal (pid %s)", self.proc.pid)
 
     def wait_ready(self, timeout: float | None = None) -> None:

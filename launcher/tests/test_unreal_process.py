@@ -222,6 +222,34 @@ class Process(unittest.TestCase):
         self.assertEqual(process.pid, 42)
         self.assertIn("started Unreal (pid 42)", logs.output[-1])
 
+    def test_unreal_that_could_not_be_put_in_the_job_is_started_with_a_warning(self):
+        process = self.process()
+        job = mock.Mock()
+        job.assign.return_value = False
+        with (
+            mock.patch.object(unreal.subprocess, "Popen", mock.Mock()),
+            mock.patch.object(unreal, "apply_display_settings"),
+            self.assertLogs("mrrsim", level="INFO") as logs,
+        ):
+            process.start(job)
+        text = "\n".join(logs.output)
+        self.assertIn("not in the launcher's Windows job", text)
+        self.assertIn("keeps running if the launcher is killed", text)
+        self.assertIn("mrrsim down", text)
+        self.assertIn("started Unreal", text)  # it is still started
+
+    def test_unreal_that_is_in_the_job_is_started_without_a_warning(self):
+        process = self.process()
+        job = mock.Mock()
+        job.assign.return_value = True
+        with (
+            mock.patch.object(unreal.subprocess, "Popen", mock.Mock()),
+            mock.patch.object(unreal, "apply_display_settings"),
+            self.assertLogs("mrrsim", level="INFO") as logs,
+        ):
+            process.start(job)
+        self.assertNotIn("Windows job", "\n".join(logs.output))
+
     def test_a_process_that_cannot_start_is_an_unreal_error_and_leaves_no_open_log(
         self,
     ):
