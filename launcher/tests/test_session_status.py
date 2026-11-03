@@ -30,7 +30,11 @@ class Status(unittest.TestCase):
             mock.patch.object(session, "read_state", return_value=state),
             mock.patch.object(session, "Podman", return_value=podman),
             mock.patch.object(session, "pid_alive", side_effect=lambda p: p in pids),
-            mock.patch.object(session.health, "tcp_open", return_value=listening),
+            mock.patch.object(
+                session.health,
+                "open_ports",
+                side_effect=lambda host, ports: list(ports) if listening else [],
+            ),
             mock.patch.object(session.health, "wait_heartbeat", return_value=heartbeat),
             contextlib.redirect_stdout(out),
         ):

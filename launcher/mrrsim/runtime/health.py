@@ -4,7 +4,19 @@ from __future__ import annotations
 
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
+
+
+# === CONSTANTS ================================================================
+
+
+# How often `alive()` is asked while a heartbeat is awaited. Asking can be as
+# slow as running a command in WSL, so it is not asked at every packet.
+ALIVE_INTERVAL_S = 1.0
+# The most ports that are tried at the same time.
+MAX_PROBES = 64
+
 
 # === TYPES ====================================================================
 
@@ -24,6 +36,18 @@ def tcp_open(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
+def open_ports(host: str, ports: list[int], timeout: float = 1.0) -> list[int]:
+    """The ports among `ports` that accept a connection, in the order given.
+    They are tried at the same time: on Windows a port nobody listens on takes
+    the whole `timeout` to refuse, so trying them one after another would cost
+    that much for each."""
+    if not ports:
+        return []
+    with ThreadPoolExecutor(max_workers=min(len(ports), MAX_PROBES)) as pool:
+        answers = list(pool.map(lambda port: tcp_open(host, port, timeout), ports))
+    return [port for port, answer in zip(ports, answers) if answer]
+
+
 def wait_tcp(
     host: str,
     ports: list[int],
@@ -34,16 +58,18 @@ def wait_tcp(
     """Wait until every port accepts a connection. Returns the ports still
     closed (empty = ready).
 
-    Stops early (returning what is still closed) when `alive()` turns False."""
+    Looks at least once, even with a timeout of 0, and may run over `timeout`
+    by up to a second (one look). Stops early (returning what is still closed)
+    when `alive()` turns False."""
     deadline = time.monotonic() + timeout
     pending = list(ports)
-    while pending and time.monotonic() < deadline:
-        pending = [p for p in pending if not tcp_open(host, p)]
-        if not pending:
+    while pending:
+        now_open = set(open_ports(host, pending))
+        pending = [port for port in pending if port not in now_open]
+        left = deadline - time.monotonic()
+        if not pending or left <= 0 or (alive is not None and not alive()):
             break
-        if alive is not None and not alive():
-            break
-        time.sleep(interval)
+        time.sleep(min(interval, left))
     return pending
 
 
@@ -87,12 +113,23 @@ def wait_heartbeat(
     """Connect to a SITL serial port and wait for a heartbeat from `sysid`.
 
     Returns (ok, detail). SITL accepts one client per serial port, so keep this
-    short-lived."""
+    short-lived. Tries at least once, even with a timeout of 0. `alive()` is
+    asked about once a second, also while reading, so a container that dies is
+    noticed within about a second."""
     deadline = time.monotonic() + timeout
     connected = False
     seen: set[int] = set()
-    while time.monotonic() < deadline:
-        if alive is not None and not alive():
+    next_check = 0.0
+
+    def container_gone() -> bool:
+        nonlocal next_check
+        if alive is None or time.monotonic() < next_check:
+            return False
+        next_check = time.monotonic() + ALIVE_INTERVAL_S
+        return not alive()
+
+    while True:
+        if container_gone():
             return False, "container exited"
         try:
             with socket.create_connection((host, port), timeout=2.0) as sock:
@@ -101,6 +138,8 @@ def wait_heartbeat(
                 buffer = b""
                 read_until = min(deadline, time.monotonic() + 4.0)
                 while time.monotonic() < read_until:
+                    if container_gone():
+                        return False, "container exited"
                     try:
                         chunk = sock.recv(4096)
                     except socket.timeout:
@@ -113,7 +152,10 @@ def wait_heartbeat(
                         return True, f"heartbeat from sysid {sysid}"
         except OSError:
             pass
-        time.sleep(0.5)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        time.sleep(min(0.5, left))
     if seen:
         return (
             False,

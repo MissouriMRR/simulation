@@ -568,12 +568,10 @@ class Session:
         sc = self.cfg.scripts
         LOG.info("running script %s", sc.main)
         mounts = self._script_mounts()
-        command = [
-            "python",
-            "-u",
-            "/work/" + sc.main.replace("\\", "/"),
-            *sc.args,
-        ]
+        target = ["/work/" + sc.main.replace("\\", "/")]
+        if sc.per_vehicle:  # one copy per vehicle, started by mrrsim_fleet
+            target = ["-m", "mrrsim_fleet", *target]
+        command = ["python", "-u", *target, *sc.args]
         proc = self.podman.run_attached(
             sc.image,
             SCRIPT_NAME,
@@ -923,8 +921,10 @@ def status(cfg: Config) -> int:
     count = (
         int(state.get("vehicles", cfg.sitl.vehicles)) if state else cfg.sitl.vehicles
     )
-    for vp in ports.all_vehicle_ports(count):
-        if not health.tcp_open("127.0.0.1", vp.monitor):
+    vehicle_ports = ports.all_vehicle_ports(count)
+    listening = health.open_ports("127.0.0.1", [vp.monitor for vp in vehicle_ports])
+    for vp in vehicle_ports:
+        if vp.monitor not in listening:
             print(
                 f"vehicle {vp.index} (sysid {vp.sysid}): not listening on "
                 f"tcp/{vp.monitor}"

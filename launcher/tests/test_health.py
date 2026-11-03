@@ -164,6 +164,27 @@ class WaitHeartbeatOverTheWire(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(detail, "heartbeat from sysid [255] but expected 1")
 
+    def test_a_container_that_dies_while_the_port_is_open_and_silent_is_noticed_within_seconds(self):
+        server = self.serve([(0, b"")] + [(0.2, b"")] * 20)  # stays connected and says nothing
+        started = time.monotonic()
+        ok, detail = health.wait_heartbeat("127.0.0.1", server.port, 1, timeout=30, alive=lambda: time.monotonic() - started < 0.3)
+        self.assertEqual((ok, detail), (False, "container exited"))
+        self.assertLess(time.monotonic() - started, 2.5)  # it used to take 4.6 s
+
+    def test_alive_is_not_asked_at_every_packet(self):
+        server = self.serve([(0.01, b"\x00" * 16)] * 300)  # a busy port, 100 packets a second
+        asked = []
+        ok, detail = health.wait_heartbeat("127.0.0.1", server.port, 1, timeout=2.2, alive=lambda: asked.append(1) or True)
+        self.assertFalse(ok)
+        self.assertTrue(2 <= len(asked) <= 5, len(asked))  # about once a second, not hundreds of times
+
+    def test_a_timeout_that_has_run_out_still_tries_once(self):
+        server = self.serve([(0, v2_heartbeat(1))])
+        ok, detail = health.wait_heartbeat("127.0.0.1", server.port, 1, timeout=0)
+        self.assertFalse(ok)
+        self.assertEqual(server.connections, 1)
+        self.assertNotIn("nothing is listening", detail)
+
     def test_the_ids_that_were_heard_are_listed_in_order(self):
         server = self.serve([(0, v2_heartbeat(7) + v2_heartbeat(3))])
         ok, detail = health.wait_heartbeat("127.0.0.1", server.port, 1, timeout=2)
@@ -260,10 +281,56 @@ class WaitTcp(unittest.TestCase):
         self.assertEqual(pending, [5])
         self.assertGreater(len(asked), 2)
 
-    def test_a_timeout_that_has_run_out_asks_nothing(self):
+    def test_a_timeout_of_zero_still_looks_once(self):
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen()
+            self.assertEqual(health.wait_tcp("127.0.0.1", [server.getsockname()[1]], timeout=0), [])
+
+    def test_a_timeout_that_has_run_out_asks_whether_it_is_alive_no_more(self):
         asked = []
-        self.assertEqual(health.wait_tcp("127.0.0.1", [1], timeout=0, alive=lambda: asked.append(1) or True), [1])
+        port = closed_port()
+        pending = health.wait_tcp("127.0.0.1", [port], timeout=0, alive=lambda: asked.append(1) or True)
+        self.assertEqual(pending, [port])
         self.assertEqual(asked, [])
+
+    def test_closed_ports_are_looked_at_together_not_one_after_another(self):
+        ports = [closed_port() for _ in range(4)]
+        started = time.monotonic()
+        self.assertEqual(health.wait_tcp("127.0.0.1", ports, timeout=0.5), ports)
+        self.assertLess(time.monotonic() - started, 2.5)  # one at a time it takes 4 s on Windows
+
+    def test_the_wait_does_not_sleep_past_the_deadline(self):
+        with mock.patch.object(health, "open_ports", return_value=[]):
+            started = time.monotonic()
+            health.wait_tcp("h", [5], timeout=0.3, interval=10)
+        self.assertLess(time.monotonic() - started, 2)
+
+
+class OpenPorts(unittest.TestCase):
+    def test_the_open_ones_come_back_in_the_order_given(self):
+        servers = [socket.socket() for _ in range(3)]
+        for server in servers:
+            self.addCleanup(server.close)
+            server.bind(("127.0.0.1", 0))
+            server.listen()
+        shut = closed_port()
+        ports = [s.getsockname()[1] for s in servers]
+        asked = [ports[2], shut, ports[0], ports[1]]
+        self.assertEqual(health.open_ports("127.0.0.1", asked), [ports[2], ports[0], ports[1]])
+
+    def test_nothing_to_try_is_nothing_open(self):
+        self.assertEqual(health.open_ports("127.0.0.1", []), [])
+
+    def test_many_closed_ports_cost_about_one_look(self):
+        ports = [closed_port() for _ in range(10)]
+        started = time.monotonic()
+        self.assertEqual(health.open_ports("127.0.0.1", ports), [])
+        self.assertLess(time.monotonic() - started, 3)  # 10 s one at a time on Windows
+
+    def test_more_ports_than_probes_are_all_answered(self):
+        with mock.patch.object(health, "MAX_PROBES", 2), mock.patch.object(health, "tcp_open", side_effect=lambda h, p, t: p % 2):
+            self.assertEqual(health.open_ports("h", [1, 2, 3, 4, 5]), [1, 3, 5])
     def test_returns_ports_that_never_opened(self):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
