@@ -10,6 +10,7 @@ build/
 # written by launcher/mrrsim/scenegen.py (python sim_config/generate_scene.py N)
 /sim_config/scene_ardupilot_*quadrotors*.jsonc
 /sim_config/robot_ardu_quadrotor_*.jsonc
+/sim_config/robot_design_*.jsonc
 
 # ArduPilot flight logs saved by `mrrsim up`
 /logs/
