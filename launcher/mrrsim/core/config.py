@@ -184,6 +184,9 @@ class ScriptsCfg:
     # the folder itself stays untouched (the Project AirSim client always writes
     # projectairsim_client.log into its working folder).
     overlay: bool = True
+    # For a program that flies one vehicle (it takes its drone number as -i N):
+    # start one copy per vehicle (see containers/script/mrrsim_fleet.py).
+    per_vehicle: bool = False
 
 
 # === THE WHOLE CONFIGURATION ==================================================

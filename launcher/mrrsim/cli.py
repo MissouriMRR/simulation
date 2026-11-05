@@ -17,7 +17,7 @@ from .core import config, paths
 from .core.log import setup
 from .designs import vehicle_design
 from .runtime import bundle, doctor, session, wsl
-from .runtime.podman import Podman
+from .runtime.podman import Podman, PodmanError
 from .scene import camerastream, poseargs, scenecheck, scenegen
 from .userscripts import pipinstall, projects, scripts
 
@@ -53,9 +53,7 @@ def _adopt_full_image(
     """Run in the full image (the one with Project AirSim, OpenCV, numpy and the
     packages `mrrsim pip install` adds) when `who` needs more than the light
     image has."""
-    if cfg.scripts.image == cfg.scene.image or not (
-        needs_airsim or beyond_light
-    ):
+    if cfg.scripts.image == cfg.scene.image or not (needs_airsim or beyond_light):
         return
     reason = (
         "imports projectairsim"
@@ -66,9 +64,7 @@ def _adopt_full_image(
     cfg.scripts.image = cfg.scene.image
 
 
-def _project_script(
-    cfg: config.Config, value: str, project: str
-) -> scripts.ScriptInfo:
+def _project_script(cfg: config.Config, value: str, project: str) -> scripts.ScriptInfo:
     """Run a file of a project folder: the whole folder is what the script
     container sees."""
     root = Path(project).resolve()
@@ -81,14 +77,10 @@ def _project_script(
         else (root / value if (root / value).is_file() else Path.cwd() / value)
     )
     if not path.is_file():
-        raise config.ConfigError(
-            f"--script {value}: not found in the project {root}"
-        )
+        raise config.ConfigError(f"--script {value}: not found in the project {root}")
     path = path.resolve()
     if not projects.contains(root, path):
-        raise config.ConfigError(
-            f"{path} is not inside the project folder {root}"
-        )
+        raise config.ConfigError(f"{path} is not inside the project folder {root}")
     cfg.scripts.dir = root
     cfg.scripts.main = projects.relative_name(root, path)
     # a codebase writes its own state files (state.json, results/): into a
@@ -96,13 +88,9 @@ def _project_script(
     cfg.scripts.overlay = True
     info = scripts.describe(path)
     scan = projects.scan(root)
-    if (
-        scan.needs_airsim
-    ):  # some file of the project may be the one that imports it
+    if scan.needs_airsim:  # some file of the project may be the one that imports it
         info = dataclasses.replace(info, needs_airsim=True)
-    _adopt_full_image(
-        cfg, "the project", scan.full_image_for, info.needs_airsim
-    )
+    _adopt_full_image(cfg, "the project", scan.full_image_for, info.needs_airsim)
     print(
         f"project {root.name}: running {cfg.scripts.main} with the whole "
         "folder available"
@@ -138,9 +126,7 @@ def _override_script(
     _adopt_full_image(
         cfg,
         info.name,
-        scripts.needs_full_image(
-            info.imports, scripts.local_names(cfg.scripts.dir)
-        ),
+        scripts.needs_full_image(info.imports, scripts.local_names(cfg.scripts.dir)),
         info.needs_airsim,
     )
     return info
@@ -168,8 +154,7 @@ def _override_resolution(cfg: config.Config, value: str) -> None:
     match = re.fullmatch(r"(\d+)[xX](\d+)", value.strip())
     if not match:
         raise config.ConfigError(
-            f"--resolution {value!r}: expected WIDTHxHEIGHT, for example "
-            "960x540"
+            f"--resolution {value!r}: expected WIDTHxHEIGHT, for example 960x540"
         )
     cfg.unreal.width, cfg.unreal.height = (
         int(match.group(1)),
@@ -202,9 +187,7 @@ def _load_design(cfg: config.Config, name: str) -> tuple[str, dict]:
     return vehicle_design.slug(name), design.doc
 
 
-def _apply_script_and_vehicles(
-    cfg: config.Config, args: argparse.Namespace
-) -> None:
+def _apply_script_and_vehicles(cfg: config.Config, args: argparse.Namespace) -> None:
     """--script/--project and --vehicles: choose the script, and how many
     vehicles to start (--vehicles wins; otherwise the number the script asks for
     in its header, if any)."""
@@ -218,6 +201,13 @@ def _apply_script_and_vehicles(
     elif script_info is not None and script_info.vehicles:
         cfg.sitl.vehicles = script_info.vehicles
         print(f"{script_info.name} asks for {script_info.vehicles} vehicle(s)")
+    if getattr(args, "per_vehicle", False):
+        cfg.scripts.per_vehicle = True
+    if cfg.scripts.per_vehicle:
+        print(
+            f"starting one copy of the script per vehicle "
+            f"({cfg.sitl.vehicles}), each with -i N"
+        )
 
 
 def _apply_script_arguments(
@@ -244,9 +234,7 @@ def _apply_script_arguments(
     return pose
 
 
-def _apply_window_options(
-    cfg: config.Config, args: argparse.Namespace
-) -> None:
+def _apply_window_options(cfg: config.Config, args: argparse.Namespace) -> None:
     """--resolution and --fullscreen: the size and mode of the Unreal window."""
     if args.resolution:
         _override_resolution(cfg, args.resolution)
@@ -286,8 +274,7 @@ def _prepare_scene(
     design_name = getattr(args, "design", None)
     if design_name and args.scene:
         raise config.ConfigError(
-            "--design and --scene cannot be used together: a design makes its "
-            "own scene"
+            "--design and --scene cannot be used together: a design makes its own scene"
         )
     if args.scene:
         _override_scene(cfg, args.scene)
@@ -307,8 +294,8 @@ def _prepare_scene(
             pose=pose,
         )
         print(
-            f"generated {cfg.scene.scene} ({count} vehicle(s)) with the "
-            f"vehicle design {design_name!r}"
+            f"generated {cfg.scene.scene} ({count} vehicle(s)) "
+            f"with the vehicle design {design_name!r}"
         )
         _say_placement(pose, count)
         if cameras:
@@ -325,9 +312,7 @@ def _prepare_scene(
             # the student's own scene is used as it is; doctor checks that it
             # matches
             return
-        if count == 1 and not scenegen.display_resize_needed(
-            folder, current, window
-        ):
+        if count == 1 and not scenegen.display_resize_needed(folder, current, window):
             return  # the original scene, nothing to adjust
         if (
             count > 1
@@ -336,7 +321,12 @@ def _prepare_scene(
         ):
             return  # the configured scene already has the right robots
     cfg.scene.scene = scenegen.generate(
-        folder, current, count, cameras=cameras, window=window, pose=pose
+        folder,
+        current,
+        count,
+        cameras=cameras,
+        window=window,
+        pose=pose,
     )
     notes = (
         ", cameras disabled"
@@ -348,10 +338,7 @@ def _prepare_scene(
             else ""
         )
     )
-    print(
-        f"generated {cfg.scene.scene} ({count} vehicle(s){notes}) from "
-        f"{current}"
-    )
+    print(f"generated {cfg.scene.scene} ({count} vehicle(s){notes}) from {current}")
     _say_placement(pose, count)
 
 
@@ -513,10 +500,7 @@ def cmd_designs(cfg: config.Config, args: argparse.Namespace) -> int:
         ]
         print(f"  {name:30} {'; '.join(notes)}")
     if not names:
-        print(
-            "  none yet: open the Vehicles tab of the window and duplicate a "
-            "vehicle"
-        )
+        print("  none yet: open the Vehicles tab of the window and duplicate a vehicle")
     provided = ", ".join(p.stem for p in library.provided()) or "none"
     print(f"provided (read-only): {provided}")
     print("\nfly one with:  mrrsim run <script> --design <name>")
@@ -542,9 +526,7 @@ def cmd_logs(cfg: config.Config, args: argparse.Namespace) -> int:
         for path in sorted(latest.glob("*.log")):
             print(f"  {path.stem:12} {path.stat().st_size:>10} bytes")
         return 0
-    path = latest / (
-        args.name if args.name.endswith(".log") else f"{args.name}.log"
-    )
+    path = latest / (args.name if args.name.endswith(".log") else f"{args.name}.log")
     if not path.is_file():
         print(f"error: {path} does not exist", file=sys.stderr)
         return 1
@@ -566,7 +548,11 @@ def cmd_logs(cfg: config.Config, args: argparse.Namespace) -> int:
 
 def cmd_bundle(cfg: config.Config, args: argparse.Namespace) -> int:
     """`mrrsim bundle`: zip the logs and diagnostics for a bug report."""
-    out = bundle.create_bundle(cfg)
+    try:
+        out = bundle.create_bundle(cfg, say=print)
+    except OSError as exc:
+        print(f"error: could not write the support bundle: {exc}", file=sys.stderr)
+        return 1
     print(f"support bundle written to {out}")
     return 0
 
@@ -591,9 +577,7 @@ def cmd_wsl_config(cfg: config.Config, args: argparse.Namespace) -> int:
         if cfg.wsl.memory:
             values["memory"] = cfg.wsl.memory
         if cfg.wsl.processors:
-            values["processors"] = str(
-                wsl.effective_processors(cfg.wsl.processors)
-            )
+            values["processors"] = str(wsl.effective_processors(cfg.wsl.processors))
     if not values:
         print(
             "nothing to do: [wsl] require_mirrored is false and memory / "
@@ -674,6 +658,18 @@ def _test_images(cfg: config.Config, podman: Podman, sitl_tag: str) -> int:
             ["-c", "import mrrsim_camera; print('mrrsim_camera imports')"],
             "mrrsim_camera imports",
         ),
+        (
+            "script",
+            cfg.scripts.image,
+            [
+                "--entrypoint",
+                "python",
+                "-e",
+                "PYTHONPATH=" + session.SCRIPT_LIB,
+            ],
+            ["-c", "import mrrsim_fleet; print('mrrsim_fleet imports')"],
+            "mrrsim_fleet imports",
+        ),
     ]
     failed = 0
     for label, image, entry, command, expect in probes:
@@ -753,9 +749,7 @@ def cmd_images(cfg: config.Config, args: argparse.Namespace) -> int:
         if cfg.scripts.image != cfg.scene.image:
             targets.insert(0, ("runtime", cfg.scripts.image))
         for target, tag in targets:
-            rc = podman.build(
-                [*common, "--target", target, "-t", tag, *extra, context]
-            )
+            rc = podman.build([*common, "--target", target, "-t", tag, *extra, context])
             if rc != 0:
                 return rc
     return 0
@@ -807,8 +801,7 @@ def _add_up_options(up: argparse.ArgumentParser, *, is_up: bool) -> None:
     if is_up:
         up.add_argument(
             "--script",
-            help="script to run (file name inside the scripts folder, or a "
-            "path)",
+            help="script to run (file name inside the scripts folder, or a path)",
         )
         up.add_argument(
             "--no-script",
@@ -839,6 +832,14 @@ def _add_up_options(up: argparse.ArgumentParser, *, is_up: bool) -> None:
         ),
     )
     up.add_argument(
+        "--per-vehicle",
+        action="store_true",
+        help="for a program that flies ONE vehicle and takes its drone number "
+        "as -i N (the team's flight code): start one copy of the script for "
+        "each vehicle, copy N with -i N, and show their output as "
+        "[drone N] ...",
+    )
+    up.add_argument(
         "--stop-file", help=argparse.SUPPRESS
     )  # touched by the window to request a graceful stop
     up.add_argument(
@@ -851,9 +852,7 @@ def _add_up_options(up: argparse.ArgumentParser, *, is_up: bool) -> None:
         action="store_true",
         help="use an Unreal that is already running",
     )
-    up.add_argument(
-        "--no-scene", action="store_true", help="skip scene loading"
-    )
+    up.add_argument("--no-scene", action="store_true", help="skip scene loading")
     up.add_argument(
         "--dry-run",
         action="store_true",
@@ -864,12 +863,8 @@ def _add_up_options(up: argparse.ArgumentParser, *, is_up: bool) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Define the command line: the global options and every command with its
     arguments."""
-    parser = argparse.ArgumentParser(
-        prog="mrrsim", description="MRRSimulator launcher"
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"mrrsim {__version__}"
-    )
+    parser = argparse.ArgumentParser(prog="mrrsim", description="MRRSimulator launcher")
+    parser.add_argument("--version", action="version", version=f"mrrsim {__version__}")
     parser.add_argument(
         "-c", "--config", help="path to mrrsim.toml (default: auto-detect)"
     )
@@ -885,16 +880,14 @@ def build_parser() -> argparse.ArgumentParser:
     up = sub.add_parser(
         "up", help="start Unreal, load the scene, start SITL, run a script"
     )
-    run = sub.add_parser(
-        "run", help="run one script: the same as `up --script FILE`"
-    )
+    run = sub.add_parser("run", help="run one script: the same as `up --script FILE`")
     run.add_argument(
         "file", help="script to run: a name from `mrrsim scripts`, or a path"
     )
     run.set_defaults(func=cmd_run, script=None, no_script=False)
-    sub.add_parser(
-        "scripts", help="list your scripts and the examples"
-    ).set_defaults(func=cmd_scripts)
+    sub.add_parser("scripts", help="list your scripts and the examples").set_defaults(
+        func=cmd_scripts
+    )
     sub.add_parser(
         "gui", help="open the window for picking and running scripts"
     ).set_defaults(func=cmd_gui)
@@ -903,8 +896,7 @@ def build_parser() -> argparse.ArgumentParser:
     ).set_defaults(func=cmd_designs)
     pipc = sub.add_parser(
         "pip",
-        help="add Python packages the script images do not have (needs "
-        "network once)",
+        help="add Python packages the script images do not have (needs network once)",
     )
     pipc.add_argument(
         "action",
@@ -924,9 +916,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_up_options(up, is_up=True)
     _add_up_options(run, is_up=False)
 
-    down = sub.add_parser(
-        "down", help="stop everything a previous run left behind"
-    )
+    down = sub.add_parser("down", help="stop everything a previous run left behind")
     down.add_argument("--dry-run", action="store_true")
     down.set_defaults(func=cmd_down)
 
@@ -1002,7 +992,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Entry point of the command-line launcher: parse the arguments, load the
     settings and run the command. Returns its exit code: 2 for a settings or
-    argument error, 130 for Ctrl+C."""
+    argument error, 1 for a podman command that failed, 130 for Ctrl+C."""
     args = build_parser().parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(
@@ -1015,5 +1005,8 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, config.ConfigError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except PodmanError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         return 130
