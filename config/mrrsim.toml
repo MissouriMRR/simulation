@@ -1,0 +1,76 @@
+# MRRSimulator launcher configuration.
+# Relative paths resolve against THIS file's folder.
+
+[wsl]
+distro = "mrr"             # WSL2 distro that has rootless podman installed
+require_mirrored = true    # .wslconfig networkingMode=mirrored: Windows and WSL share 127.0.0.1
+use_init = true            # podman run --init (needs catatonit) so `podman stop` is prompt
+memory = "4GB"
+processors = 4
+
+[unreal]
+# Run the Shipping exe directly. Windows\Simulation.exe is only a bootstrapper stub.
+exe = "../Windows/Simulation/Binaries/Win64/Simulation-Win64-Shipping.exe"
+# The command line is: -windowed|-fullscreen -ResX=<width> -ResY=<height> [-NoVSync] <args...>
+width = 1280
+height = 720
+windowed = true
+vsync = false                    # false adds -NoVSync
+priority = "above_normal"        # Windows priority: low | below_normal | normal | above_normal | high
+close_grace_s = 4
+# Before loading the scene the launcher waits until a process inside WSL can connect to Unreal
+wsl_reach_timeout_s = 90
+args = ["-nosplash"]             # anything else, appended as it is
+host = "127.0.0.1"
+topic_port = 8989          # nng topics  (tcp://*:8989 in projectairsim_server.log)
+service_port = 8990        # nng services (tcp://*:8990)
+ready_timeout_s = 120      # seconds Unreal gets to open those two ports before the run is given up
+
+[scene]
+image = "localhost/mrrsim-script:airsim"
+config_dir = "../sim_config"
+scene = "scene_ardupilot_quadrotor.jsonc"
+hold = true                # keep the AirSim client connected until shutdown
+delay_s = 2.0              # seconds the loader waits after the scene has loaded
+load_timeout_s = 180       # seconds the scene gets to load before the run is given up
+
+[sitl]
+ardupilot_ref = "Copter-4.7.0"   # tag or full commit SHA; used by `mrrsim images build`
+image = ""                       # "" -> localhost/mrrsim-sitl:<ardupilot_ref lowercased>
+vehicles = 1
+model = "airsim-copter"          # ArduPilot's physics model: the external Project AirSim one
+# lat,lon,alt,heading; must match the scene's home-geo-point (`mrrsim doctor` warns when it does not)
+home = "37.94894101,-91.78455965,15,0"
+speedup = 1                      # ArduPilot's --speedup
+sim_address = "127.0.0.1"        # where ArduPilot finds the simulator
+gcs_out = "127.0.0.1:14550"      # SERIAL0 udpclient target, shared by all vehicles
+wipe = true                      # wipe ArduPilot's saved parameters at every start, so `defaults` and [sitl.params] always apply
+synthetic_clock = false          # -S: a no-op in ArduPilot 4.7.0, only meaningful for older refs
+defaults = ""                    # "" -> image default (copter.parm,airsim-quadX.parm)
+extra_args = []
+health_timeout_s = 120           # seconds each vehicle gets to send its first heartbeat
+stop_timeout_s = 5               # seconds `podman stop` waits for a vehicle before it is killed
+# ArduPilot's own flight logs (.BIN, for Mission Planner / MAVExplorer / UAV Log Viewer) are copied out of
+# the container at shutdown into <folder you ran mrrsim from>/<log_dir>/<session>/sitl-<i>/
+save_logs = true
+log_dir = "logs"
+
+# ArduPilot parameter overrides, loaded after the frame defaults. The scene steps physics every
+# 3 ms (~333 Hz), so the gyro runs at ~334 Hz; the stock AirSim defaults want a 300 Hz loop, which
+# needs a >= 540 Hz gyro (1.8x) and an achieved loop >= 270 Hz (90%).
+#
+# GPS1_TYPE = 100 selects ArduPilot's built-in simulated GPS. With the default (auto-detect, which
+# simulates a u-blox on a fake serial port) arming failed with "GPS 1: not healthy" even though the
+# GPS had a 3D fix.
+[sitl.params]
+SCHED_LOOP_RATE = 100
+GPS1_TYPE = 100
+
+[scripts]
+image = "localhost/mrrsim-script:runtime"   # use ...:airsim if the script imports projectairsim
+dir = "../scripts"
+main = "takeoff_land.py"
+args = []
+stop_grace_s = 25                # time a script gets after Ctrl+C (e.g. to LAND) before it is killed
+overlay = true
+per_vehicle = false
