@@ -300,7 +300,9 @@ def _prepare_scene(
         _say_placement(pose, count)
         if cameras:
             cfg.scene.camera_streams = camerastream.streams(design[1], count)
-            for stream in cfg.scene.camera_streams[:: max(count, 1)]:
+            for stream in cfg.scene.camera_streams:
+                if stream["vehicle"] != 0:  # said once per camera, not once per vehicle
+                    continue
                 print(
                     f"camera {stream['camera']} sends its pictures to UDP "
                     f"port {stream['port']} "
