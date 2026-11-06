@@ -1,5 +1,6 @@
-import subprocess
+import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -192,13 +193,14 @@ class Generate(unittest.TestCase):
         self.assertIn("4 m apart along y", few)
         self.assertNotIn("a row", few)
         many = self.header(scenegen.generate(self.dir, BASE, 12))
-        self.assertIn("3 m apart along y, 10 to a row and the rows 3 m apart along x", many)
+        spacing = scenegen.DEFAULT_SPACING_M
+        self.assertIn(f"{spacing:g} m apart along y, 10 to a row and the rows {spacing:g} m apart along x", many)
 
     def test_the_scene_says_how_to_make_it_again(self):
         plain = self.header(scenegen.generate(self.dir, BASE, 2))
         self.assertIn(f"generate_scene.py 2 --base {BASE})", plain)
-        every = self.header(scenegen.generate(self.dir, BASE, 2, spacing_m=5, cameras=False))
-        self.assertIn(f"generate_scene.py 2 --base {BASE} --spacing 5 --no-cameras)", every)
+        every = self.header(scenegen.generate(self.dir, BASE, 2, spacing_m=7, cameras=False))
+        self.assertIn(f"generate_scene.py 2 --base {BASE} --spacing 7 --no-cameras)", every)
         resized = self.header(scenegen.generate(self.dir, BASE, 2, window=(960, 540)))
         self.assertIn("--window 960x540)", resized)
         placed = self.header(scenegen.generate(self.dir, BASE, 2, pose=poseargs.Pose(position=(1.0, 2.0, -3.0))))
@@ -208,6 +210,20 @@ class Generate(unittest.TestCase):
         script = paths.repo_root() / "sim_config" / "generate_scene.py"
         done = subprocess.run([sys.executable, "-I", str(script), "--help"], capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_a_design_without_both_udp_ports_is_refused(self):
+        design = ("quad", {"controller": {"type": "ardupilot-api", "ardupilot-settings": {}}})
+        with self.assertRaises(scenegen.SceneGenError) as caught:
+            scenegen.generate(self.dir, BASE, 1, design=design)
+        self.assertIn("UDP ports", str(caught.exception))
+
+    def test_something_that_is_not_an_actor_in_the_scene_is_carried_over_untouched(self):
+        scene = scenecheck.load_jsonc(self.dir / BASE)
+        scene["actors"].append("stray")
+        (self.dir / "scene_stray.jsonc").write_text(json.dumps(scene), encoding="utf-8")
+        name = scenegen.generate(self.dir, "scene_stray.jsonc", 2)
+        self.assertIn("stray", scenecheck.load_jsonc(self.dir / name)["actors"])
+        self.assertEqual(scenecheck.check_scene(self.dir, name, 2), [])
 
     def test_count_out_of_range(self):
         with self.assertRaises(scenegen.SceneGenError):

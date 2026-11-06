@@ -58,11 +58,6 @@ def _dumps(doc: dict) -> str:
     return json.dumps(doc, indent=2) + "\n"
 
 
-def _robot_actors(scene: dict) -> list[dict]:
-    """The robots of a scene."""
-    return [a for a in scene.get("actors", []) if a.get("type") == "robot"]
-
-
 def _design_advice(slug: str) -> str:
     """What a generated file says about changing a file that comes from a vehicle design."""
     return f"Edit the vehicle design {slug!r} in the Vehicles tab and run again instead of editing this file."
@@ -116,7 +111,7 @@ def display_resize_needed(config_dir: Path, scene_file: str, window: Size) -> bo
     change. Scenes that cannot be read, or that are not a single-robot template, say False."""
     try:
         scene = scenecheck.load_jsonc(config_dir / scene_file)
-        robots = _robot_actors(scene)
+        robots = scenecheck.robot_actors(scene)
         if len(robots) != 1:
             return False
         robot = scenecheck.load_jsonc(config_dir / robots[0].get("robot-config", ""))
@@ -320,7 +315,7 @@ def generate(
         return base_scene
 
     scene = scenecheck.load_jsonc(config_dir / base_scene)
-    robots = _robot_actors(scene)
+    robots = scenecheck.robot_actors(scene)
     if len(robots) != 1:
         raise SceneGenError(
             f"{base_scene} has {len(robots)} robots; the template scene must have exactly one "
@@ -355,7 +350,7 @@ def generate(
             "robot-config": config_name,
         })
 
-    scene["actors"] = [a for a in scene["actors"] if a.get("type") != "robot"] + actors
+    scene["actors"] = [a for a in scene["actors"] if a is not template_actor] + actors
     name = scene_name(count, cameras, resized_to, template.slug or "", pose)
     note = _scene_note(base_scene, count, spacing_m, why, cameras, resized_to, template.slug, pose)
     _write_generated(config_dir / name, _with_header(_dumps(scene), note))
