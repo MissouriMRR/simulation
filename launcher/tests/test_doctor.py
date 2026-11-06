@@ -477,6 +477,13 @@ class SceneAndScript(Folder):
         self.assertEqual(result.status, OK)
         self.assertIn("2 ArduPilot robot(s)", result.detail)
 
+    def test_a_home_point_that_is_not_the_scenes_is_a_warning_with_the_fix(self):
+        self.scenes(2)
+        self.cfg.sitl.home = "37.9490953,-91.7848293,0,90"
+        scene, home = doctor._scene(self.cfg)
+        self.assertEqual((scene.status, home.name, home.status), (OK, "scene home", WARN))
+        self.assertIn('[sitl] home = "37.94894101,-91.78455965,15,90"', home.detail)
+
     def test_a_scene_for_another_number_of_vehicles_fails_and_says_how_to_fix_it(self):
         self.scenes(2)
         self.cfg.sitl.vehicles = 3

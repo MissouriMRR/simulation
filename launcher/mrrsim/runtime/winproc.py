@@ -233,7 +233,7 @@ def pid_alive(pid: int) -> bool:
     if not handle:
         return False
     try:
-        # A process that has ended is "signalled", whatever its exit code was:
+        # A process that has ended is "signaled", whatever its exit code was:
         # GetExitCodeProcess cannot tell the code 259 from "still running".
         return _k32.WaitForSingleObject(handle, 0) == _WAIT_TIMEOUT
     finally:

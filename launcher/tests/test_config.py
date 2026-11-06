@@ -1,4 +1,5 @@
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -24,6 +25,19 @@ class ShippedConfig(unittest.TestCase):
         cfg = config.load(paths.repo_root() / "config" / "mrrsim.toml")
         self.assertTrue((cfg.scripts.dir / cfg.scripts.main).is_file())
 
+    def test_the_shipped_file_lists_every_setting(self):
+        shipped = tomllib.loads((paths.repo_root() / "config" / "mrrsim.toml").read_text(encoding="utf-8"))
+        for section, cls in config._SECTIONS.items():
+            missing = config.settings_of(cls) - shipped[section].keys() - {"params"}   # [sitl.params] is a table of its own
+            self.assertEqual(missing, set(), f"[{section}] settings the shipped file does not show")
+        self.assertIn("params", shipped["sitl"])
+
+    def test_the_default_home_point_is_the_shipped_one_everywhere(self):
+        shipped = config.load(paths.repo_root() / "config" / "mrrsim.toml").sitl.home
+        self.assertEqual(config.SitlCfg().home, shipped)
+        entrypoint = (paths.repo_root() / "containers" / "sitl" / "entrypoint.sh").read_text(encoding="utf-8")
+        self.assertIn("${HOME_LOC:=" + shipped + "}", entrypoint)
+
 
 class Validation(unittest.TestCase):
     def setUp(self):
@@ -42,6 +56,11 @@ class Validation(unittest.TestCase):
     def test_unknown_key_suggests_the_right_one(self):
         with self.assertRaisesRegex(config.ConfigError, "did you mean 'vehicles'"):
             config.load(_write(self.dir, "[sitl]\nvehicals = 2\n"))
+
+    def test_the_launchers_own_fields_are_not_settings(self):
+        with self.assertRaisesRegex(config.ConfigError, "unknown key 'camera_streams' in .scene."):
+            config.load(_write(self.dir, "[scene]\ncamera_streams = [1]\n"))
+        self.assertEqual(config.load(_write(self.dir, "")).scene.camera_streams, [])
 
     def test_unknown_section(self):
         with self.assertRaisesRegex(config.ConfigError, r"unknown section \[sitll\]"):

@@ -126,6 +126,10 @@ def ardupilot_ports(robot_config: dict) -> tuple[int, int] | None:
 # === CHECKING =================================================================
 
 
+HOME_TOLERANCE_DEG = 1e-6  # latitude and longitude of the home point may differ this much (about 0.1 m)
+HOME_TOLERANCE_M = 0.01    # and its altitude this much
+
+
 def check_scene(config_dir: Path, scene_file: str, vehicles: int) -> list[str]:
     """Problems that would make `vehicles` SITL instances hang. Empty list = consistent.
 
@@ -178,3 +182,25 @@ def check_scene(config_dir: Path, scene_file: str, vehicles: int) -> list[str]:
                 f"local-host-udp-port {vp.sim_out}"
             )
     return problems
+
+
+def home_problem(config_dir: Path, scene_file: str, home: str) -> str | None:
+    """What is wrong when the scene's home-geo-point is not `home` (the "lat,lon,alt,heading" of [sitl] home), else None.
+    ArduPilot then puts the vehicle where the simulator does not, by up to tens of meters. A scene with no home point
+    (or one `home` cannot be compared with) is not a problem.
+
+    Raises SceneParseError when the scene cannot be read."""
+    point = load_jsonc(config_dir / scene_file).get("home-geo-point")
+    try:
+        lat, lon, alt, heading = (float(v) for v in home.split(","))
+        scene_lat, scene_lon, scene_alt = (float(point[key]) for key in ("latitude", "longitude", "altitude"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if (abs(lat - scene_lat) <= HOME_TOLERANCE_DEG and abs(lon - scene_lon) <= HOME_TOLERANCE_DEG
+            and abs(alt - scene_alt) <= HOME_TOLERANCE_M):
+        return None
+    scene_home = f"{scene_lat:.8f},{scene_lon:.8f},{scene_alt:g}"
+    return (
+        f"the scene's home-geo-point is {scene_home} but [sitl] home is {home}, so ArduPilot's position does not match "
+        f"the simulator's; set [sitl] home = \"{scene_home},{heading:g}\" in mrrsim.toml"
+    )

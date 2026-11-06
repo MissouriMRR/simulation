@@ -133,8 +133,8 @@ class SceneCfg:
     hold: bool = True
     delay_s: float = 2.0
     load_timeout_s: float = 180.0
-    # set from the vehicle design by the launcher, not by mrrsim.toml
-    camera_streams: list = field(default_factory=list)
+    # set from the vehicle design by the launcher; not a setting (init=False: mrrsim.toml cannot give it)
+    camera_streams: list = field(default_factory=list, init=False)
 
 
 @dataclass
@@ -145,7 +145,7 @@ class SitlCfg:
     image: str = ""
     vehicles: int = 1
     model: str = "airsim-copter"
-    home: str = "37.9490953,-91.7848293,0,0"
+    home: str = "37.94894101,-91.78455965,15,0"
     speedup: float = 1.0
     sim_address: str = "127.0.0.1"
     gcs_out: str = "127.0.0.1:14550"
@@ -356,13 +356,19 @@ _SECTIONS: dict[str, type] = {
 }
 
 
+def settings_of(cls: type) -> set[str]:
+    """The names a section of mrrsim.toml may give: the fields of its class that are
+    settings (a field with init=False is the launcher's own)."""
+    return {f.name for f in fields(cls) if f.init}
+
+
 def _build_section(name: str, cls: type, raw: dict[str, Any]) -> Any:
     """Make one section's settings object from the raw table; an unknown key is
     an error with a 'did you mean' hint."""
     data = raw.get(name, {})
     if not isinstance(data, dict):
         raise ConfigError(f"[{name}] must be a table")
-    known = {f.name for f in fields(cls)}
+    known = settings_of(cls)
     for key in data:
         if key not in known:
             hint = difflib.get_close_matches(key, known, n=1)

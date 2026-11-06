@@ -2,7 +2,7 @@
 
 The student types them in the Run tab's "Script arguments" box. They are for the launcher, not for the script: `extract`
 takes them out of the argument list before the script gets it, and the scene generator (scenegen.py) places the vehicle.
-They only count together with --airsim (which the script still receives). Units: metres and degrees, in the simulator's
+They only count together with --airsim (which the script still receives). Units: meters and degrees, in the simulator's
 NED frame (X forward, Y right, Z down: a negative Z is above the ground), like the Vehicles tab's position and rotation.
 
     --position X Y Z                          where vehicle 0 spawns (also "X,Y,Z" or "X Y Z" as one argument)
@@ -74,7 +74,7 @@ class Pose:
         return lines
 
 
-def normalise_angle(degrees: float) -> float:
+def normalize_angle(degrees: float) -> float:
     """Any finite angle as -180..180."""
     wrapped = (degrees + 180.0) % 360.0 - 180.0
     return 180.0 if wrapped == -180.0 and degrees > 0 else wrapped
@@ -83,7 +83,7 @@ def normalise_angle(degrees: float) -> float:
 def _wrapped(angles: Vec3) -> Vec3:
     """Roll, pitch and yaw, each as -180..180."""
     roll, pitch, yaw = angles
-    return normalise_angle(roll), normalise_angle(pitch), normalise_angle(yaw)
+    return normalize_angle(roll), normalize_angle(pitch), normalize_angle(yaw)
 
 
 def _number(text: str, what: str) -> float:
@@ -133,7 +133,7 @@ def _vehicle_pose(text: str) -> tuple[int, Pose6]:
     if len(parts) != 6:
         raise PoseError(f"{VEHICLE_POSE} {text!r}: needs six numbers after the vehicle number (x,y,z,roll,pitch,yaw), got {len(parts)}")
     x, y, z, roll, pitch, yaw = (_number(p, f"{VEHICLE_POSE} {text!r}") for p in parts)
-    return int(match.group(1)), (x, y, z, normalise_angle(roll), normalise_angle(pitch), normalise_angle(yaw))
+    return int(match.group(1)), (x, y, z, normalize_angle(roll), normalize_angle(pitch), normalize_angle(yaw))
 
 
 def extract(args: list[str], vehicles: int = 1) -> tuple[list[str], Pose]:

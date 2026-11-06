@@ -23,7 +23,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("count", type=int, help="number of vehicles")
     parser.add_argument("--base", default="scene_ardupilot_quadrotor.jsonc", help="single-vehicle template scene")
-    parser.add_argument("--spacing", type=float, default=scenegen.DEFAULT_SPACING_M, help="metres between vehicles (along y)")
+    parser.add_argument("--spacing", type=float, default=scenegen.DEFAULT_SPACING_M, help="meters between vehicles (along y)")
     parser.add_argument("--no-cameras", action="store_true", help="write a variant with every camera sensor disabled")
     parser.add_argument("--window", metavar="WxH", help="simulator window size: the streamed camera is set to it")
     args = parser.parse_args()

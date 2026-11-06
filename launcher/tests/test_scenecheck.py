@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mrrsim.core import paths
+from mrrsim.core import config, paths
 from mrrsim.scene import scenecheck
 
 BS = chr(92)  # a backslash
@@ -192,10 +192,61 @@ class CheckScene(unittest.TestCase):
             scenecheck.check_scene(self.dir, "scene.jsonc", 1)
 
 
+class HomeProblem(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def scene(self, **home_point):
+        doc = {"actors": []}
+        if home_point:
+            doc["home-geo-point"] = home_point
+        (self.dir / "scene.jsonc").write_text("// c\n" + json.dumps(doc))
+
+    def problem(self, home):
+        return scenecheck.home_problem(self.dir, "scene.jsonc", home)
+
+    def test_the_same_point_is_fine_even_written_shorter(self):
+        self.scene(latitude=37.94894101091474, longitude=-91.78455965055593, altitude=15.0)
+        self.assertIsNone(self.problem("37.94894101,-91.78455965,15,0"))
+        self.assertIsNone(self.problem("37.94894101091474,-91.78455965055593,15.005,270"))   # the heading is the vehicle's, not the scene's
+
+    def test_another_point_is_reported_with_the_line_to_use_and_the_heading_kept(self):
+        self.scene(latitude=37.94894101091474, longitude=-91.78455965055593, altitude=15.0)
+        for home in ("37.9490953,-91.7848293,15,90", "37.94894101,-91.78455965,0,90", "37.94894101,-91.7846,15,90"):
+            said = self.problem(home)
+            self.assertIn("home-geo-point is 37.94894101,-91.78455965,15 but", said, home)
+            self.assertIn(f"is {home}", said)
+            self.assertIn('[sitl] home = "37.94894101,-91.78455965,15,90"', said, home)
+
+    def test_a_scene_without_a_home_point_or_with_a_broken_one_is_not_a_problem(self):
+        self.scene()
+        self.assertIsNone(self.problem("37.9,-91.7,0,0"))
+        self.scene(latitude="north", longitude=-91.7, altitude=0)
+        self.assertIsNone(self.problem("37.9,-91.7,0,0"))
+        self.scene(latitude=37.9)
+        self.assertIsNone(self.problem("37.9,-91.7,0,0"))
+
+    def test_a_home_that_cannot_be_read_is_left_to_the_config_check(self):
+        self.scene(latitude=37.9, longitude=-91.7, altitude=0)
+        for home in ("", "37.9,-91.7", "a,b,c,d"):
+            self.assertIsNone(self.problem(home), home)
+
+    def test_a_scene_that_cannot_be_read_raises(self):
+        (self.dir / "scene.jsonc").write_text("{ not json")
+        with self.assertRaises(scenecheck.SceneParseError):
+            self.problem("37.9,-91.7,0,0")
+
+
 class ShippedFiles(unittest.TestCase):
     def test_the_repo_scenes_match_their_vehicle_counts(self):
         sim_config = paths.repo_root() / "sim_config"
         self.assertEqual(scenecheck.check_scene(sim_config, "scene_ardupilot_quadrotor.jsonc", 1), [])
+
+    def test_the_shipped_home_point_is_the_shipped_scenes(self):
+        cfg = config.load(paths.repo_root() / "config" / "mrrsim.toml")
+        self.assertIsNone(scenecheck.home_problem(cfg.scene.config_dir, cfg.scene.scene, cfg.sitl.home))
 
 
 if __name__ == "__main__":

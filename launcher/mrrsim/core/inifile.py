@@ -19,7 +19,7 @@ def _section_name(line: str) -> str | None:
 
 def set_keys(text: str, section: str, values: dict[str, object]) -> str:
     """Return `text` with `[section]` holding `values`. A key already there (any
-    capitalisation) is replaced in place, missing ones are added at the end of
+    capitalization) is replaced in place, missing ones are added at the end of
     the section, and the section is created if it does not exist."""
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()

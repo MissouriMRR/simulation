@@ -13,7 +13,7 @@ class SetKeys(unittest.TestCase):
             out, "# note\n[a]\nx=1\n\n[wsl2]\nmemory=4GB\nprocessors=2\n\n[b]\ny=2\n"
         )
 
-    def test_a_key_is_replaced_in_place_whatever_its_capitalisation(self):
+    def test_a_key_is_replaced_in_place_whatever_its_capitalization(self):
         out = inifile.set_keys(
             "[wsl2]\nMemory = 4GB\nswap=0\n", "wsl2", {"memory": "8GB"}
         )
@@ -34,7 +34,7 @@ class SetKeys(unittest.TestCase):
         out = inifile.set_keys("[a]\nk=1\n[b]\nk=2\n", "b", {"k": 9})
         self.assertEqual(out, "[a]\nk=1\n[b]\nk=9\n")
 
-    def test_the_section_name_matches_whatever_its_capitalisation(self):
+    def test_the_section_name_matches_whatever_its_capitalization(self):
         out = inifile.set_keys("[WSL2]\nk=1\n", "wsl2", {"k": 2})
         self.assertEqual(out, "[WSL2]\nk=2\n")
 

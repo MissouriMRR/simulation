@@ -169,7 +169,7 @@ class WslConfig(unittest.TestCase):
         with mock.patch.dict("os.environ", env):
             self.assertEqual(wsl.wslconfig_path(), Path("C:/Users/me/.wslconfig"))
 
-    def test_a_setting_is_found_whatever_its_capitalisation(self):
+    def test_a_setting_is_found_whatever_its_capitalization(self):
         path = self.write("[wsl2]\nMemory = 8GB\n")
         self.assertEqual(wsl.wsl2_setting("memory", path), "8GB")
         self.assertEqual(wsl.wsl2_setting("MEMORY", path), "8GB")

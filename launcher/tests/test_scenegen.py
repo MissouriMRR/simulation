@@ -163,7 +163,7 @@ class Generate(unittest.TestCase):
     def test_a_long_comment_at_the_top_of_the_robot_config_does_not_stop_a_second_run(self):
         self.edit_robot(lambda text: "// " + "a long note about this drone " * 30 + NL + text)
         scenegen.generate(self.dir, BASE, 2)
-        scenegen.generate(self.dir, BASE, 2)  # the copy it wrote itself is still recognised
+        scenegen.generate(self.dir, BASE, 2)  # the copy it wrote itself is still recognized
         self.assertIn(scenegen.MARKER, (self.dir / "robot_ardu_quadrotor_2.jsonc").read_text(encoding="utf-8"))
 
     def test_a_brace_in_a_comment_at_the_top_of_the_robot_config_is_not_where_the_header_goes(self):

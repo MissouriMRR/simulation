@@ -193,7 +193,7 @@ def wslconfig_path() -> Path:
 
 
 def wsl2_setting(name: str, path: Path | None = None) -> str | None:
-    """A key of the [wsl2] section of .wslconfig (any capitalisation), or
+    """A key of the [wsl2] section of .wslconfig (any capitalization), or
     None if the file, the section or the key is missing or unreadable. A
     comment after the value (`memory=8GB # for builds`) is not part of it."""
     path = path or wslconfig_path()

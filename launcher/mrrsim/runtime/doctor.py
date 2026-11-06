@@ -473,8 +473,8 @@ def _unreal(cfg: Config) -> list[Check]:
 
 
 def _scene(cfg: Config) -> list[Check]:
-    """The scene file exists and has an ArduPilot robot with the right ports for
-    every vehicle."""
+    """The scene file exists, has an ArduPilot robot with the right ports for
+    every vehicle, and has the home point [sitl] home says."""
     if not cfg.scene.scene:
         return [
             Check(
@@ -518,13 +518,19 @@ def _scene(cfg: Config) -> list[Check]:
                 "or pick another scene with --scene (see sim_config/README.md)",
             )
         ]
-    return [
+    checks = [
         Check(
             "scene",
             OK,
             f"{path.name}: {cfg.sitl.vehicles} ArduPilot robot(s), ports match",
         )
     ]
+    home = scenecheck.home_problem(
+        cfg.scene.config_dir, cfg.scene.scene, cfg.sitl.home
+    )
+    if home:
+        checks.append(Check("scene home", WARN, home))
+    return checks
 
 
 def _script(cfg: Config) -> list[Check]:

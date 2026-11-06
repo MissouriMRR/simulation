@@ -50,13 +50,13 @@ class Parsing(unittest.TestCase):
     def test_numbers_may_be_negative_decimal_or_exponents(self):
         self.assertEqual(extract(["--airsim", "--position", "-1.5", "+2", "1e1"])[1].position, (-1.5, 2.0, 10.0))
 
-    def test_angles_are_normalised_to_minus_180_to_180(self):
+    def test_angles_are_normalized_to_minus_180_to_180(self):
         rotation = extract(["--airsim", "--rotation", "190", "-190", "720"])[1].rotation
         self.assertEqual(rotation, (-170.0, 170.0, 0.0))
         self.assertEqual(extract(["--airsim", "--rotation", "0", "0", "180"])[1].rotation, (0.0, 0.0, 180.0))
         self.assertEqual(extract(["--airsim", "--rotation", "0", "0", "-180"])[1].rotation, (0.0, 0.0, -180.0))
 
-    def test_vehicle_pose_is_repeatable_and_normalises_its_angles(self):
+    def test_vehicle_pose_is_repeatable_and_normalizes_its_angles(self):
         kept, pose = extract(["--airsim", "--vehicle-pose", "0=1,2,3,0,0,270", "--vehicle-pose", "2=4,5,6,10,20,30"], vehicles=3)
         self.assertEqual(kept, ["--airsim"])
         self.assertEqual(pose.vehicles, {0: (1.0, 2.0, 3.0, 0.0, 0.0, -90.0), 2: (4.0, 5.0, 6.0, 10.0, 20.0, 30.0)})

@@ -827,7 +827,7 @@ def _add_up_options(up: argparse.ArgumentParser, *, is_up: bool) -> None:
             "sign so a leading dash is not taken for an option of mrrsim: "
             '--script-args="-s --fast" (replaces [scripts] args). With '
             "--airsim among them, --position X Y Z, --rotation ROLL PITCH YAW "
-            "(metres and degrees, NED) and --vehicle-pose "
+            "(meters and degrees, NED) and --vehicle-pose "
             "N=x,y,z,roll,pitch,yaw choose where the vehicles spawn; the "
             "launcher uses them and the script does not receive them: "
             '--script-args="--airsim --position 5 3 -2 --rotation 0 0 90"'
