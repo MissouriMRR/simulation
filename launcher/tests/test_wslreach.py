@@ -72,6 +72,17 @@ class WaitForWsl(unittest.TestCase):
         self.assertIn("Allow access", str(caught.exception))
         self.assertIn("Gave up after 5 s", str(caught.exception))
 
+    def test_the_message_names_the_exe_the_settings_run(self):
+        cfg = load('[unreal]\nexe = "C:/Sims/MySim-Win64-Shipping.exe"\nwsl_reach_timeout_s = 5')
+        sess = session.Session(cfg, dry_run=False)
+        clock = iter([0, 0, 2, 4, 6, 8])
+        with mock.patch.object(session.wsl, "can_connect", return_value=False), \
+                mock.patch.object(session.time, "monotonic", side_effect=lambda: next(clock)):
+            with self.assertRaises(session.SessionError) as caught:
+                sess._wait_wsl_reaches_unreal()
+        self.assertIn("for MySim-Win64-Shipping.exe", str(caught.exception))
+        self.assertNotIn("Simulation-Win64-Shipping.exe", str(caught.exception))
+
     def test_skipped_when_it_cannot_be_tested_and_in_dry_run_and_when_disabled(self):
         with mock.patch.object(session.wsl, "can_connect", return_value=None) as probe:
             self.sess._wait_wsl_reaches_unreal()

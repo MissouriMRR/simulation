@@ -377,12 +377,11 @@ class Session:
             return
         message = (
             f"WSL cannot reach Unreal at {cfg.host}:{cfg.topic_port} yet. If "
-            "Windows shows a Security Alert "
-            "(Windows Defender Firewall) for 'Multirotor Simulation' or "
-            "Simulation-Win64-Shipping.exe, click "
-            "'Allow access' (it may be behind other windows). If there is "
-            "none, WSL networking may be "
-            f"broken: run `mrrsim doctor`."
+            "Windows shows a Security Alert (Windows Defender Firewall) for "
+            f"{cfg.exe.name} (the provided simulator is listed as 'Multirotor "
+            "Simulation'), click 'Allow access' (it may be behind other "
+            "windows). If there is none, WSL networking may be broken: run "
+            "`mrrsim doctor`."
         )
         deadline = time.monotonic() + cfg.wsl_reach_timeout_s
         last_warned: float | None = None
