@@ -1,7 +1,7 @@
 # launcher/
 
 `mrrsim`: starts the whole simulator from one command and shuts it down in the right order.
-Python 3.11+, standard library only, so it freezes small with PyInstaller later. Scripts
+Python 3.11+, standard library only, so it freezes small with PyInstaller (`build.cmd`). Scripts
 do **not** run on this interpreter; they run on Python 3.12 inside a container.
 
 ## Run it
