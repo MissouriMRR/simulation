@@ -665,10 +665,8 @@ class Session:
             Mount(wsl.to_wsl_path(sc.dir, self.cfg.wsl.distro), "/work", work_mode),
             Mount(wsl.to_wsl_path(self.dir, self.cfg.wsl.distro), "/out", "rw"),
         ]
-        extra = paths.packages_dir()  # packages added with `mrrsim pip install`
-        if extra.is_dir() and any(
-            p.name != pipinstall.DRIVER_NAME for p in extra.iterdir()
-        ):
+        if pipinstall.has_packages():  # packages added with `mrrsim pip install`
+            extra = paths.packages_dir()
             mounts.append(
                 Mount(wsl.to_wsl_path(extra, self.cfg.wsl.distro), "/packages", "ro")
             )
