@@ -16,9 +16,13 @@ images rebuilt.
 """
 from __future__ import annotations
 
+import queue
 import re
 import shutil
+import subprocess
 import sys
+import threading
+from typing import Iterator
 
 from ..core import config, paths
 from ..runtime import wsl
@@ -228,6 +232,28 @@ def reset() -> int:
     return 0
 
 
+def _lines(proc: subprocess.Popen) -> Iterator[str]:
+    """The lines the process prints, as they come. A thread of its own reads them and they are waited for in short
+    steps, so Ctrl+C (and the window's Stop) gets through while the process prints nothing: on Windows a blocking
+    read is not interrupted until the process ends."""
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def read() -> None:
+        for line in proc.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=read, name="pip-output", daemon=True).start()
+    while True:
+        try:
+            line = lines.get(timeout=0.2)
+        except queue.Empty:
+            continue
+        if line is None:
+            return
+        yield line
+
+
 def run(cfg: config.Config, action: str, specs: list[str] | None = None, dry_run: bool = False) -> int:
     """Run the pip driver in the script image. Returns its exit code."""
     folder = paths.packages_dir()
@@ -245,7 +271,7 @@ def run(cfg: config.Config, action: str, specs: list[str] | None = None, dry_run
         if proc is None:  # dry run
             return 0
         try:
-            for line in proc.stdout:
+            for line in _lines(proc):
                 print(line.rstrip(), flush=True)
             return proc.wait()
         except KeyboardInterrupt:

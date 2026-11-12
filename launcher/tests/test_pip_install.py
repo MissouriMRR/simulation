@@ -1,9 +1,12 @@
+import _thread
 import importlib.util
 import io
 import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 from contextlib import redirect_stdout
@@ -12,7 +15,6 @@ from unittest import mock
 
 from mrrsim import cli
 from mrrsim.core import config, paths
-from mrrsim.ui.run import commands
 from mrrsim.userscripts import pipinstall
 
 
@@ -198,14 +200,9 @@ class RunInTheContainer(Base):
         self.assertFalse(self.helper.exists())
 
     def test_ctrl_c_stops_the_container_and_gives_130(self):
-        def interrupted():
-            raise KeyboardInterrupt
-            yield ""
-
-        proc = self.process([])
-        proc.stdout = interrupted()
-        self.podman.run_attached.return_value = proc
-        self.assertEqual(pipinstall.run(self.cfg, "install", ["x"]), 130)
+        self.podman.run_attached.return_value = self.process([])
+        with mock.patch.object(pipinstall, "_lines", side_effect=KeyboardInterrupt):
+            self.assertEqual(pipinstall.run(self.cfg, "install", ["x"]), 130)
         self.podman.stop.assert_called_once_with([pipinstall.CONTAINER_NAME], timeout=5)
         self.assertFalse(self.helper.exists())
 
@@ -223,13 +220,24 @@ class RunInTheContainer(Base):
         self.assertFalse(self.helper.exists())
 
 
-class StatusLine(unittest.TestCase):
-    def test_pip_status(self):
-        self.assertIn("failed", commands.pip_status(1, ""))
-        self.assertIn("does not import", commands.pip_status(0, "x\n[WARN] import pyzbar.pyzbar fails: ImportError\n"))
-        self.assertIn("available to every script", commands.pip_status(0, "[ OK ] import tqdm works"))
-        self.assertEqual(commands.pip_status(0, "Removed x 1.0", removing=True), "Packages removed")
-        self.assertIn("failed", commands.pip_status(1, "", removing=True))
+class ReadingTheOutput(unittest.TestCase):
+    def test_every_line_comes_through_in_order(self):
+        proc = subprocess.Popen([sys.executable, "-c", "print('one'); print('two')"], stdout=subprocess.PIPE, text=True)
+        self.assertEqual(list(pipinstall._lines(proc)), ["one\n", "two\n"])
+        proc.wait()
+
+    def test_ctrl_c_gets_through_while_the_container_prints_nothing(self):
+        """On Windows a blocking read is only interrupted when the process ends; a hung pip prints nothing."""
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        timer = threading.Timer(0.5, _thread.interrupt_main)
+        started = time.monotonic()
+        timer.start()
+        with self.assertRaises(KeyboardInterrupt):
+            for _line in pipinstall._lines(proc):
+                pass
+        self.assertLess(time.monotonic() - started, 5)
 
 
 class Driver(unittest.TestCase):

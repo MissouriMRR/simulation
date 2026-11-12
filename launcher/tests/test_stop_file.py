@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from mrrsim import cli
+from mrrsim.core import paths
 
 
 class StopFileAfterShutdownBegan(unittest.TestCase):
@@ -52,6 +53,33 @@ class StopFile(unittest.TestCase):
                         break
                     real_sleep(0.02)
                 self.assertEqual(len(hits), 2)
+
+
+class EveryCommandTheWindowCanStop(unittest.TestCase):
+    """The window's Stop button works for runs, the doctor and package installs alike: each takes --stop-file."""
+
+    CONFIG = str(paths.repo_root() / "config" / "mrrsim.toml")
+
+    def main(self, *argv: str):
+        with mock.patch.object(cli, "_watch_stop_file") as watch:
+            code = cli.main(["-c", self.CONFIG, *argv])
+        return code, watch
+
+    def test_run_doctor_and_pip_watch_the_stop_file(self):
+        with mock.patch.object(cli, "cmd_run", return_value=0), \
+                mock.patch.object(cli.doctor, "run_checks", return_value=[]), \
+                mock.patch.object(cli.pipinstall, "cli", return_value=0), mock.patch("builtins.print"):
+            for argv in (("run", "fly.py"), ("doctor",), ("pip", "install", "tqdm"), ("pip", "list")):
+                code, watch = self.main(*argv, "--stop-file", "stop.request")
+                self.assertEqual(code, 0, argv)
+                watch.assert_called_once_with(Path("stop.request"))
+                code, watch = self.main(*argv)
+                watch.assert_not_called()
+
+    def test_a_stopped_doctor_ends_with_the_ctrl_c_code(self):
+        with mock.patch.object(cli.doctor, "run_checks", side_effect=KeyboardInterrupt):
+            code, _ = self.main("doctor", "--stop-file", "stop.request")
+        self.assertEqual(code, 130)
 
 
 if __name__ == "__main__":
