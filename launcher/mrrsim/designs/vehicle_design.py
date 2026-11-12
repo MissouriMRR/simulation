@@ -92,10 +92,7 @@ def parse_value(setting: vs.Setting, text: str) -> Any:
         return None
     kind = setting.kind
     if kind == vs.NUMBER:
-        value = _finite(text)
-        if value is None:
-            raise DesignError(f"{setting.title}: {text!r} is not a number.")
-        return int(value) if value.is_integer() and "." not in text and "e" not in text.lower() else value
+        return parse_number(text, setting.title)
     if kind == vs.INTEGER:
         value = _finite(text)
         if value is None or not value.is_integer():
@@ -142,6 +139,18 @@ def format_value(setting: vs.Setting, value: Any) -> str:
     if isinstance(value, float):
         return f"{value:.10g}"
     return str(value)
+
+
+def parse_number(text: str, what: str) -> int | float | None:
+    """The number `text` means, or None when it is empty. Written without a point or exponent it stays a whole number
+    ("3" is 3, "3.0" is 3.0). DesignError, naming `what`, when it is not a finite number."""
+    text = text.strip()
+    if text == "":
+        return None
+    value = _finite(text)
+    if value is None:
+        raise DesignError(f"{what}: {text!r} is not a number.")
+    return int(value) if value.is_integer() and "." not in text and "e" not in text.lower() else value
 
 
 def _finite(text: str) -> float | None:

@@ -57,6 +57,15 @@ class Values(unittest.TestCase):
         with self.assertRaises(vd.DesignError):
             vd.parse_value(s, "abc")
 
+    def test_a_number_on_its_own(self):
+        for text, expected in (("3", 3), (" -2 ", -2), ("3.0", 3.0), ("1e3", 1000.0), ("0.25", 0.25), ("", None), ("  ", None)):
+            value = vd.parse_number(text, "MC_ROLL_P")
+            self.assertEqual((value, type(value)), (expected, type(expected)), text)
+        for bad in ("abc", "inf", "nan", "1,5"):
+            with self.assertRaises(vd.DesignError) as caught:
+                vd.parse_number(bad, "MC_ROLL_P")
+            self.assertTrue(str(caught.exception).startswith("MC_ROLL_P: "), bad)
+
     def test_integers(self):
         s = self.setting(vs.INTEGER)
         self.assertEqual(vd.parse_value(s, "16"), 16)
