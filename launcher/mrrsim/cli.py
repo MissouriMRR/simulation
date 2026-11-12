@@ -970,7 +970,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     images.add_argument(
         "--projectairsim-ref",
-        help="Project AirSim git ref for the airsim image",
+        help="Project AirSim git ref for the airsim image (default: the commit "
+        "pinned in containers/script/Containerfile)",
     )
     images.add_argument("--no-cache", action="store_true")
     images.add_argument(
