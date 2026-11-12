@@ -1,9 +1,11 @@
+import re
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
 
 from mrrsim.core import config, paths
+from mrrsim.runtime import session
 
 
 def _write(directory: Path, text: str) -> Path:
@@ -31,6 +33,18 @@ class ShippedConfig(unittest.TestCase):
             missing = config.settings_of(cls) - shipped[section].keys() - {"params"}   # [sitl.params] is a table of its own
             self.assertEqual(missing, set(), f"[{section}] settings the shipped file does not show")
         self.assertIn("params", shipped["sitl"])
+
+    def test_the_sitl_images_own_defaults_are_the_launchers(self):
+        """The launcher always passes these to the SITL container; its own defaults are for running the image by hand,
+        and must not tell a different story."""
+        entrypoint = (paths.repo_root() / "containers" / "sitl" / "entrypoint.sh").read_text(encoding="utf-8")
+        image = dict(re.findall(r'^: "\$\{(\w+):=([^}]*)\}"', entrypoint, re.M))
+        for cfg in (config.SitlCfg(), config.load(paths.repo_root() / "config" / "mrrsim.toml").sitl):
+            launcher = {"MODEL": cfg.model, "HOME_LOC": cfg.home, "SPEEDUP": session._fmt_number(cfg.speedup),
+                        "SIM_ADDRESS": cfg.sim_address, "GCS_OUT": cfg.gcs_out, "WIPE": "1" if cfg.wipe else "0",
+                        "SYNTHETIC_CLOCK": "1" if cfg.synthetic_clock else "0"}
+            for name, value in launcher.items():
+                self.assertEqual(image.get(name), value, name)
 
     def test_the_default_home_point_is_the_shipped_one_everywhere(self):
         shipped = config.load(paths.repo_root() / "config" / "mrrsim.toml").sitl.home
