@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any
 
+from ..core import ports
 from ..scene import camerastream
 
 # ------------------------------------------------------------------------------------------------ kinds
@@ -77,8 +78,8 @@ class BlockType:
 
     @property
     def name_key(self) -> str:
-        """The key that names a block: sensors and controller use "id", actuators and links "name", joints "id"."""
-        return "name" if self.section in ("links", "actuators") else "id"
+        """The key that names a block of this type (see `name_key`)."""
+        return name_key(self.section)
 
     def setting(self, key: str) -> Setting | None:
         """The top-level setting with that key (or alias); None if there is none."""
@@ -219,7 +220,7 @@ CAMERA = _sensor("camera", "Camera", "Takes pictures: color, depth, segmentation
     table("capture-settings", "Captures", CAPTURE, required=True, help="One entry per kind of image this camera produces."),
     table("noise-settings", "Image noise", NOISE, help="Optional noise models for the captures."),
     group("gimbal", "Gimbal", (
-        text("gimbal-id", "Gimbal actuator", help="Name of a gimbal actuator that steers this camera."),
+        actuator_ref("gimbal-id", "Gimbal actuator", help="Name of a gimbal actuator that steers this camera."),
         boolean("lock-roll", "Lock roll", False, required=True), boolean("lock-pitch", "Lock pitch", False, required=True),
         boolean("lock-yaw", "Lock yaw", False, required=True),
     ), help="Mount the camera on a gimbal and choose which axes stay fixed."),
@@ -604,7 +605,8 @@ PX4_PARAMS = (("NAV_RCL_ACT", "Action on RC loss"), ("NAV_DLL_ACT", "Action on d
 AIRFRAMES = ("quadrotor-x", "hexarotor-x", "vtol-quad-x-tailsitter", "vtol-quad-tiltrotor", "fixed-wing")
 CONTROLLER_TYPES = ("ardupilot-api", "simple-flight-api", "px4-api", "simple-drive-api", "manual-controller-api",
                     "matlab-controller-api", "jsbsim-api")
-ARDUPILOT_MANAGED = "The launcher sets this for every vehicle (9003 + 10i / 9002 + 10i) so SITL and the simulator find each other."
+ARDUPILOT_MANAGED = (f"The launcher sets this for every vehicle ({ports.BASE_SIM_IN} + {ports.STEP}i / {ports.BASE_SIM_OUT} + "
+                     f"{ports.STEP}i) so SITL and the simulator find each other.")
 
 CONTROLLER = BlockType("controller", "", "Controller", "Controller", "Decides the actuator commands. This repository's "
                        "SITL setup uses ArduPilot; the other types are for Project AirSim's own controllers.", (
@@ -618,9 +620,9 @@ CONTROLLER = BlockType("controller", "", "Controller", "Controller", "Decides th
     group("ardupilot-settings", "ArduPilot", (
         text("local-host-ip", "Simulator address", "127.0.0.1", help="Address of the simulator side of the UDP link."),
         text("ardupilot-ip", "ArduPilot address", "127.0.0.1", help="Address of the host running ArduPilot SITL."),
-        integer("ardupilot-udp-port", "ArduPilot UDP port", 9003, required=True, managed=ARDUPILOT_MANAGED,
+        integer("ardupilot-udp-port", "ArduPilot UDP port", ports.BASE_SIM_IN, required=True, managed=ARDUPILOT_MANAGED,
                 help="Port SITL receives sensor data on."),
-        integer("local-host-udp-port", "Simulator UDP port", 9002, required=True, managed=ARDUPILOT_MANAGED,
+        integer("local-host-udp-port", "Simulator UDP port", ports.BASE_SIM_OUT, required=True, managed=ARDUPILOT_MANAGED,
                 help="Port the simulator receives motor outputs on."),
         boolean("use-sensor-distance", "Send distance-sensor data", False, legacy=("use-distance-sensor", "use-lidar"),
                 help="Sends the distance sensor's readings to ArduPilot. The docs, the JSON schema and the sample configs all write "
@@ -664,7 +666,8 @@ CONTROLLER = BlockType("controller", "", "Controller", "Controller", "Decides th
         ACTUATOR_ORDER,
     ), when=("type", ("matlab-controller-api",)), required=True),
 ), {"id": "ArduPilot_Controller", "type": "ardupilot-api", "ardupilot-settings": {
-    "ardupilot-ip": "127.0.0.1", "ardupilot-udp-port": 9003, "local-host-ip": "127.0.0.1", "local-host-udp-port": 9002,
+    "ardupilot-ip": "127.0.0.1", "ardupilot-udp-port": ports.BASE_SIM_IN, "local-host-ip": "127.0.0.1",
+    "local-host-udp-port": ports.BASE_SIM_OUT,
     "actuator-order": []}})
 
 
@@ -694,6 +697,11 @@ VEHICLE = BlockType("vehicle", "", "Vehicle", "Vehicle", "Settings of the whole 
 BLOCK_TYPES = (VEHICLE, CONTROLLER, LINK, JOINT) + ACTUATORS + SENSORS
 SECTION_ORDER = ("vehicle", "controller", "links", "joints", "actuators", "sensors")
 LIST_SECTIONS = ("links", "joints", "actuators", "sensors")
+
+
+def name_key(section: str) -> str:
+    """The key that names a block of a section: links and actuators use "name"; sensors, joints and the controller "id"."""
+    return "name" if section in ("links", "actuators") else "id"
 
 
 def block_type(section: str, type_: str = "") -> BlockType | None:
