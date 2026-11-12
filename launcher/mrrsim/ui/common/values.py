@@ -10,6 +10,8 @@ import re
 import tkinter as tk
 from tkinter import ttk
 
+from . import colors
+
 _NUMBER = r"([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)"  # as Python prints them: 12, -2.5, .5, 2., 1e-05
 # the boxes, top to bottom: name -> (the line a script prints, the box's title, how the box shows the number)
 VALUES = {
@@ -40,11 +42,11 @@ class ValueTiles(ttk.Frame):
         super().__init__(parent, padding=(app.px(10), 0, app.px(2), 0))
         self.labels: dict[str, tk.Label] = {}
         for row, (key, (_pattern, title, _fmt)) in enumerate(VALUES.items()):
-            tile = tk.Frame(self, highlightthickness=1, highlightbackground="#c4c4c4", background="#ffffff")
+            tile = tk.Frame(self, highlightthickness=1, highlightbackground=colors.BORDER, background=colors.SURFACE)
             tile.grid(row=row, column=0, sticky="ew", pady=(0, app.px(8)))
-            tk.Label(tile, text=title, font=app.font, fg="#5e5c64", background="#ffffff").pack(
+            tk.Label(tile, text=title, font=app.font, fg=colors.MUTED, background=colors.SURFACE).pack(
                 anchor="w", padx=app.px(10), pady=(app.px(6), 0))
-            label = tk.Label(tile, text=NO_VALUE, font=("Segoe UI", 24, "bold"), fg="#1a1a1a", background="#ffffff",
+            label = tk.Label(tile, text=NO_VALUE, font=("Segoe UI", 24, "bold"), fg=colors.TEXT, background=colors.SURFACE,
                              width=7, anchor="e")
             label.pack(anchor="e", padx=app.px(10), pady=(0, app.px(6)))
             self.labels[key] = label

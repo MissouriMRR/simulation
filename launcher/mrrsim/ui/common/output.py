@@ -4,6 +4,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from . import colors
+
 
 class OutputView(ttk.Frame):
     """A read-only text with a scrollbar. `append` follows the end of the text only if it was already at the end."""
@@ -14,16 +16,16 @@ class OutputView(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.text = tk.Text(self, height=5, wrap="word", state="disabled", font=("Consolas", 10),
                             padx=app.px(10), pady=app.px(8), spacing1=app.px(1), spacing3=app.px(1),
-                            relief="flat", borderwidth=1, highlightthickness=1, highlightbackground="#c4c4c4")
+                            relief="flat", borderwidth=1, highlightthickness=1, highlightbackground=colors.BORDER)
         self.text.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(self, command=self.text.yview)
         scroll.grid(row=0, column=1, sticky="ns")
         self.text.configure(yscrollcommand=scroll.set)
-        self.text.tag_configure("script", foreground="#1a5fb4")
-        self.text.tag_configure("error", foreground="#c01c28")
-        self.text.tag_configure("warning", foreground="#b25000")
-        self.text.tag_configure("note", foreground="#5e5c64")
-        self.text.tag_configure("ok", foreground="#26a269")
+        self.text.tag_configure("script", foreground=colors.SCRIPT)
+        self.text.tag_configure("error", foreground=colors.ERROR)
+        self.text.tag_configure("warning", foreground=colors.WARNING)
+        self.text.tag_configure("note", foreground=colors.MUTED)
+        self.text.tag_configure("ok", foreground=colors.OK)
 
     def append(self, text: str, tag: str | None = None) -> None:
         """Add a line, colored by `tag` (script, error, warning, note, ok), and follow it when the end was in view."""
