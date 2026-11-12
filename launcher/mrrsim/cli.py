@@ -382,8 +382,6 @@ def cmd_up(cfg: config.Config, args: argparse.Namespace) -> int:
     _apply_window_options(cfg, args)
     cfg.validate()
     _prepare_scene(cfg, args, pose)
-    if getattr(args, "stop_file", None):
-        _watch_stop_file(Path(args.stop_file))
     want_script = not args.no_script
     if want_script and not cfg.scripts.main:
         print(
@@ -837,9 +835,8 @@ def _add_up_options(up: argparse.ArgumentParser, *, is_up: bool) -> None:
         "--per-vehicle",
         action="store_true",
         help="for a program that flies ONE vehicle and takes its drone number "
-        "as -i N (the team's flight code): start one copy of the script for "
-        "each vehicle, copy N with -i N, and show their output as "
-        "[drone N] ...",
+        "as -i N: start one copy of the script for each vehicle, copy N with "
+        "-i N, and show their output as [drone N] ...",
     )
     up.add_argument(
         "--stop-file", help=argparse.SUPPRESS
@@ -875,9 +872,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser(
+    doctor_cmd = sub.add_parser(
         "doctor", help="check this machine and the project files"
-    ).set_defaults(func=cmd_doctor)
+    )
+    doctor_cmd.add_argument(
+        "--stop-file", help=argparse.SUPPRESS
+    )  # touched by the window's Stop button
+    doctor_cmd.set_defaults(func=cmd_doctor)
 
     up = sub.add_parser(
         "up", help="start Unreal, load the scene, start SITL, run a script"
@@ -909,6 +910,9 @@ def build_parser() -> argparse.ArgumentParser:
     pipc.add_argument(
         "names", nargs="*", help="package names, e.g. tqdm  requests==2.32.3"
     )
+    pipc.add_argument(
+        "--stop-file", help=argparse.SUPPRESS
+    )  # touched by the window's Stop button
     pipc.add_argument(
         "--dry-run",
         action="store_true",
@@ -1003,6 +1007,8 @@ def main(argv: list[str] | None = None) -> int:
     setup(args.verbose)
     try:
         cfg = config.load(paths.find_config(args.config))
+        if getattr(args, "stop_file", None):  # the window's Stop button: up, run, doctor and pip
+            _watch_stop_file(Path(args.stop_file))
         return args.func(cfg, args)
     except (FileNotFoundError, config.ConfigError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

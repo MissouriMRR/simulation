@@ -329,6 +329,7 @@ class Session:
     def _preflight(self, *, unreal: bool, scene: bool, script: bool) -> None:
         """Run the doctor's checks and log every problem. A failed check
         stops the run."""
+        LOG.info("preflight: checking this computer and the project files")
         checks = doctor.run_checks(
             self.cfg,
             unreal=unreal,

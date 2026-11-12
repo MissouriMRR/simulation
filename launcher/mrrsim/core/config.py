@@ -14,6 +14,9 @@ from . import ports
 # === CONSTANTS ================================================================
 
 
+# The size of the Unreal window, in pixels (each side): the smallest and the largest that is accepted
+MIN_PIXELS, MAX_PIXELS = 160, 16384
+
 # Windows priority classes for the Unreal process, lowest to highest
 UNREAL_PRIORITIES = (
     "low",
@@ -288,10 +291,10 @@ class Config:
         errors: list[str] = []
         for name in ("width", "height"):
             value = getattr(self.unreal, name)
-            if not (_is_whole_number(value) and 160 <= value <= 16384):
+            if not (_is_whole_number(value) and MIN_PIXELS <= value <= MAX_PIXELS):
                 errors.append(
                     f"[unreal] {name} must be a whole number of pixels "
-                    f"(160..16384), got {value!r}"
+                    f"({MIN_PIXELS}..{MAX_PIXELS}), got {value!r}"
                 )
         grace = self.unreal.close_grace_s
         if not (_is_number(grace) and grace > 0):
