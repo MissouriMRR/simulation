@@ -1,0 +1,18 @@
+# Python 3.12 student-script environment. DroneKit and pymavlink are pinned (the combination flies);
+# the rest are loose: pip picks the newest release that supports Python 3.12.
+
+# pymavlink comes from the Missouri S&T MRR package index (https://missourimrr.github.io/pypi-index/),
+# not from PyPI. The index is added next to PyPI, which still serves everything else; the exact
+# version below exists only on the MRR index, so pip cannot pick PyPI's copy instead.
+--extra-index-url https://missourimrr.github.io/pypi-index/simple/
+pymavlink==2.4.49.post1
+
+# DroneKit: the team's own build (the project's pyproject.toml uses the same file), not PyPI's 2.9.2. It is
+# 2.9.2 made to work on Python 3.10+ (PyPI's fails on `collections.MutableMapping`) and with additions
+# such as Vehicle wind data. pip checks the hash, so a changed or replaced file is refused.
+dronekit @ https://github.com/MissouriMRR/missourimrr.github.io/raw/refs/heads/main/docs/flight/dronekit-2.9.2-py310-none-any.whl#sha256=45af0ca983e6b9b1ee20885cdbac5ec2f60bc94c3ede8e134e2bc32a4c18ac54
+monotonic
+future
+lxml
+# DroneKit imports pkg_resources, which setuptools 81+ no longer ships.
+setuptools<81

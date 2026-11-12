@@ -1,0 +1,20 @@
+# Extra packages for the full (airsim) image, on top of requirements.txt. They are what the team's
+# flight code (the SUAS repository's pyproject.toml) imports; the light runtime image does not have them.
+# Not included on purpose: open3d (about 400 MB, and nothing imports it), pytesseract (needs the
+# tesseract program, and nothing imports it).
+aiofiles
+aiohttp
+colorlog
+onnxruntime
+pyodm
+scipy
+shapely
+siyi-sdk
+typing-extensions
+utm
+# needed by tornado 4.5.3, which the airsim client fork pulls in
+backports-ssl-match-hostname>=3.7.0.1
+
+# The AirSim Python client fork the flight code imports as `airsim` (flight/camera.py) is not here: the
+# Containerfile fetches it (heitmeih/AirSim-fixed-pyinstall, PythonClient folder, pinned to a commit) and
+# installs it from a local folder, because pip's own `git+https` install fails when GitHub refuses lazy fetches.
