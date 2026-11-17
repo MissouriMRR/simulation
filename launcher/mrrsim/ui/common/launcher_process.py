@@ -2,7 +2,7 @@
 
 The window does not start the simulator itself. It runs the command-line launcher (`mrrsim run <script> ...`) as a
 background process and shows what it prints, so the window and the command line always behave the same way. Stop asks
-that process to stop the way Ctrl+C would: the script gets time to land the vehicle first.
+that process to stop the way Ctrl+C would: the script is killed at once, then the launcher shuts everything down.
 """
 from __future__ import annotations
 

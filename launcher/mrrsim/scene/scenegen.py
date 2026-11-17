@@ -16,9 +16,13 @@ and the scene is scene_ardupilot_<N>quadrotors[...]_design_<slug>.jsonc.
 
 With a `pose` (poseargs.py) the vehicles spawn where it says instead of at the scene's own origin, and the scene
 name ends with the pose's tag: scene_ardupilot_<N>quadrotors[...]_pose<hash>.jsonc.
+
+With a `home` (latitude, longitude, altitude: `mrrsim run --home`) the scene's home-geo-point is that point, and the
+name ends with _home<hash>.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -35,6 +39,7 @@ DEFAULT_SPACING_M = 5.0
 PER_ROW = 10  # vehicles in a row before the next row starts (so 100 drones are a 10 x 10 block, not a 300 m line)
 
 Size = tuple[int, int]  # width, height in pixels
+Home = tuple[float, float, float]  # latitude, longitude (degrees) and altitude (meters) of the scene's home point
 
 
 class SceneGenError(ValueError):
@@ -73,12 +78,18 @@ def variant_tag(cameras: bool, resized_to: Size | None) -> str:
     return f"_{resized_to[0]}x{resized_to[1]}" if resized_to else ""
 
 
+def home_tag(home: Home) -> str:
+    """A short name part for a scene with this home point: the same point always gives the same name."""
+    return "home" + hashlib.sha1(json.dumps(list(home)).encode("utf-8")).hexdigest()[:8]
+
+
 def scene_name(count: int, cameras: bool = True, resized_to: Size | None = None, design_slug: str = "",
-               pose: poseargs.Pose | None = None) -> str:
+               pose: poseargs.Pose | None = None, home: Home | None = None) -> str:
     """The file name of the generated scene for these choices."""
     design = f"_design_{design_slug}" if design_slug else ""
     placed = f"_{pose.tag()}" if pose else ""   # another pose is another file, so runs with different poses never overwrite
-    return f"scene_ardupilot_{count}quadrotors{variant_tag(cameras, resized_to)}{design}{placed}.jsonc"
+    homed = f"_{home_tag(home)}" if home else ""
+    return f"scene_ardupilot_{count}quadrotors{variant_tag(cameras, resized_to)}{design}{placed}{homed}.jsonc"
 
 
 # === CAMERAS ==================================================================
@@ -267,14 +278,14 @@ def _load_template(config_dir: Path, base_scene: str, template_actor: dict,
 
 
 def _scene_note(base_scene: str, count: int, spacing_m: float, why: str, cameras: bool, resized_to: Size | None,
-                slug: str | None, pose: poseargs.Pose | None) -> str:
+                slug: str | None, pose: poseargs.Pose | None, home: Home | None = None) -> str:
     """The comment at the top of the generated scene: what it is, where the vehicles spawn, how to change it."""
     layout = f", {spacing_m:g} m apart along y" if count > 1 else ""
     if count > PER_ROW:
         layout += f", {PER_ROW} to a row and the rows {spacing_m:g} m apart along x"
     if slug is not None:
         advice = _design_advice(slug)
-    elif pose:  # generate_scene.py cannot place vehicles, so it would not make this scene again
+    elif pose or home:  # generate_scene.py cannot place vehicles or move the home point, so it would not make this again
         advice = f"Edit {base_scene} and run again instead of editing this file."
     else:
         command = f"python sim_config/generate_scene.py {count} --base {base_scene}"
@@ -283,6 +294,8 @@ def _scene_note(base_scene: str, count: int, spacing_m: float, why: str, cameras
         command += f" --window {resized_to[0]}x{resized_to[1]}" if resized_to else ""
         advice = f"Edit {base_scene} and regenerate ({command}) instead of editing this file."
     spawn = "".join(f"Spawn pose (--position/--rotation): {line}.\n" for line in (pose.describe(count) if pose else []))
+    if home:
+        spawn += f"Home point (--home): {poseargs.fmt(home[0])}, {poseargs.fmt(home[1])}, {poseargs.fmt(home[2])} m.\n"
     return f"{MARKER} from {base_scene}: {count} ArduPilot quadrotor(s){layout}{why}.\n{spawn}{advice}"
 
 
@@ -295,6 +308,7 @@ def generate(
     window: Size | None = None,
     design: tuple[str, dict] | None = None,
     pose: poseargs.Pose | None = None,
+    home: Home | None = None,
 ) -> str:
     """Write the N-vehicle scene (and the extra robot configs); return the scene file name.
 
@@ -307,14 +321,19 @@ def generate(
     `pose` (poseargs.Pose) says where and which way the vehicles spawn instead of the scene's own origin: vehicle 0 at
     `pose.position`, the others spaced from it along y, all turned by `pose.rotation`, except the vehicles in
     `pose.vehicles`, which are placed exactly. A pose always makes a generated scene, named after it.
+
+    `home` (latitude, longitude, altitude) is the scene's home-geo-point instead of its own. It too always makes a
+    generated scene, named after it.
     """
     if not 1 <= count <= ports.MAX_VEHICLES:
         raise SceneGenError(f"vehicle count {count} out of range 1..{ports.MAX_VEHICLES}")
-    if design is None and not pose and count == 1 and cameras \
+    if design is None and not pose and home is None and count == 1 and cameras \
             and not (window and display_resize_needed(config_dir, base_scene, window)):
         return base_scene
 
     scene = scenecheck.load_jsonc(config_dir / base_scene)
+    if home is not None:
+        scene["home-geo-point"] = {"latitude": home[0], "longitude": home[1], "altitude": home[2]}
     robots = scenecheck.robot_actors(scene)
     if len(robots) != 1:
         raise SceneGenError(
@@ -351,8 +370,8 @@ def generate(
         })
 
     scene["actors"] = [a for a in scene["actors"] if a is not template_actor] + actors
-    name = scene_name(count, cameras, resized_to, template.slug or "", pose)
-    note = _scene_note(base_scene, count, spacing_m, why, cameras, resized_to, template.slug, pose)
+    name = scene_name(count, cameras, resized_to, template.slug or "", pose, home)
+    note = _scene_note(base_scene, count, spacing_m, why, cameras, resized_to, template.slug, pose, home)
     _write_generated(config_dir / name, _with_header(_dumps(scene), note))
     problems = scenecheck.check_scene(config_dir, name, count)
     if problems:  # should be impossible; guards against a template the checker reads differently

@@ -24,6 +24,7 @@ from ..scene import camerastream, scenecheck, scenegen
 from . import vehicle_schema as vs
 
 SUFFIX = ".jsonc"
+SHIPPED_DIR = "designs"  # beside the provided vehicles (sim_config): designs every student gets a copy of
 HEADER = "// MRRSimulator vehicle design (a Project AirSim robot config). Edit it in the Vehicles tab of the MRRSimulator window.\n"
 MAX_NAME = 60
 RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
@@ -881,6 +882,22 @@ class Library:
     def load_provided(self, path: Path) -> Design:
         """A provided vehicle, read-only."""
         return Design(self._read(path), name=path.stem, path=path, provided=True)
+
+    # designs shipped with the simulator
+    def ensure_shipped(self) -> list[str]:
+        """Copy the designs shipped with the simulator (sim_config/designs, such as "IARC Drone") into the folder of
+        saved designs when there is none of that name yet. One that is there is never replaced: the student may have
+        changed it. Returns the names copied."""
+        shipped = self.provided_dir / SHIPPED_DIR if self.provided_dir else None
+        if shipped is None or not shipped.is_dir():
+            return []
+        copied = []
+        for source in sorted(shipped.glob(f"*{SUFFIX}"), key=lambda p: p.name.lower()):
+            if source.is_file() and not self.exists(source.stem):
+                self.folder.mkdir(parents=True, exist_ok=True)
+                self.path_of(source.stem).write_bytes(source.read_bytes())
+                copied.append(source.stem)
+        return copied
 
     # reading and writing
     @staticmethod

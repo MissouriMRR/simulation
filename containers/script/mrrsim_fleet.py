@@ -4,15 +4,19 @@
 
 starts `python -u SCRIPT ARGS -i N` for N = 1 ... SIM_VEHICLE_COUNT, all at once (drone N is vehicle N-1 of the
 launcher, the one SIM_CONNECT_<N-1> reaches). Every line a copy prints is shown with `[drone N]` in front. Ctrl+C or
-a stop request reaches every copy as the same signal, so each one can land by itself. The exit code is the first
+a stop request reaches every copy as the same signal, so they all stop together. The exit code is the first
 copy's failure, or 0 when every copy ended well.
 
 The pictures of a camera that streams to the script (SIM_CAMERA_PORT, see mrrsim_camera.py) come to one UDP port,
 and only one program can listen on it. This program listens there instead and passes each picture on to the copy
 whose vehicle took it, on a port of its own: the copy's SIM_CAMERA_PORT, so its CameraReceiver() just works.
+Without a streaming camera each copy still gets a port of its own, so their receivers do not collide.
+
+MRRSIM_COPY_ENV (from `mrrsim run --copy-env NAME=V1,V2,...`) gives each copy its own value of a variable.
 """
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -45,10 +49,14 @@ def child_command(script: str, args: list[str], number: int) -> list[str]:
 
 
 def child_env(env: dict[str, str], index: int, camera_port: int | None) -> dict[str, str]:
-    """The environment of the copy for vehicle `index`: the same as ours, with its own picture port."""
+    """The environment of the copy for vehicle `index`: the same as ours, with its own picture port and its own
+    values of MRRSIM_COPY_ENV (`mrrsim run --copy-env NAME=V1,V2,...`: JSON, a name -> one value per copy). The
+    picture port is its own even when no camera streams (then counted from mrrsim_camera.DEFAULT_PORT), so copies
+    that open a CameraReceiver never fight over one port; they just get no pictures."""
     own = dict(env)
-    if camera_port is not None:
-        own["SIM_CAMERA_PORT"] = str(relay_port(camera_port, index))
+    own["SIM_CAMERA_PORT"] = str(relay_port(mrrsim_camera.DEFAULT_PORT if camera_port is None else camera_port, index))
+    for name, values in json.loads(env.get("MRRSIM_COPY_ENV") or "{}").items():
+        own[name] = values[index]
     return own
 
 

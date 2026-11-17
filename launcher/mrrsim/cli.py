@@ -6,6 +6,7 @@ from __future__ import annotations
 import _thread
 import argparse
 import dataclasses
+import math
 import re
 import sys
 import threading
@@ -208,6 +209,23 @@ def _apply_script_and_vehicles(cfg: config.Config, args: argparse.Namespace) -> 
             f"starting one copy of the script per vehicle "
             f"({cfg.sitl.vehicles}), each with -i N"
         )
+    for text in getattr(args, "copy_env", None) or []:
+        name, _, values = text.partition("=")
+        if not cfg.scripts.per_vehicle:
+            raise config.ConfigError(f"--copy-env {text!r}: needs --per-vehicle")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise config.ConfigError(
+                f"--copy-env {text!r}: give NAME=V1,V2,... (NAME is an "
+                "environment variable name)"
+            )
+        split = values.split(",")
+        if len(split) != cfg.sitl.vehicles:
+            raise config.ConfigError(
+                f"--copy-env {text!r}: {len(split)} value(s) for "
+                f"{cfg.sitl.vehicles} vehicle(s); give one per vehicle"
+            )
+        cfg.scripts.copy_env[name] = split
+        print(f"each copy gets its own {name}: {', '.join(split)}")
 
 
 def _apply_script_arguments(
@@ -234,6 +252,42 @@ def _apply_script_arguments(
     return pose
 
 
+def _apply_home(
+    cfg: config.Config, args: argparse.Namespace
+) -> scenegen.Home | None:
+    """--home: where the simulation starts. Sets ArduPilot's home ([sitl] home)
+    and returns (latitude, longitude, altitude) for the scene's home point, or
+    None without --home. LAT,LON alone keeps [sitl] home's altitude and
+    heading."""
+    text = getattr(args, "home", None)
+    if not text:
+        return None
+    parts = [part.strip() for part in text.split(",")]
+    if len(parts) == 2:
+        parts += cfg.sitl.home.split(",")[2:]
+    try:
+        lat, lon, alt, heading = (float(part) for part in parts)
+    except ValueError:
+        raise config.ConfigError(
+            f"--home {text!r}: give LAT,LON or LAT,LON,ALT,HEADING, "
+            "for example --home 34.6251269,-86.8091462"
+        ) from None
+    if not (
+        all(math.isfinite(v) for v in (alt, heading))
+        and -90 <= lat <= 90
+        and -180 <= lon <= 180
+    ):
+        raise config.ConfigError(
+            f"--home {text!r}: the latitude must be -90 to 90, the longitude "
+            "-180 to 180, and every number finite"
+        )
+    cfg.sitl.home = ",".join(
+        f"{v:.8f}".rstrip("0").rstrip(".") for v in (lat, lon, alt, heading)
+    )
+    print(f"home point {cfg.sitl.home} (--home)")
+    return lat, lon, alt
+
+
 def _apply_window_options(cfg: config.Config, args: argparse.Namespace) -> None:
     """--resolution and --fullscreen: the size and mode of the Unreal window."""
     if args.resolution:
@@ -256,9 +310,10 @@ def _prepare_scene(
     cfg: config.Config,
     args: argparse.Namespace,
     pose: poseargs.Pose | None = None,
+    home: scenegen.Home | None = None,
 ) -> None:
     """Pick or generate the scene that matches --vehicles, --no-cameras,
-    --design and the spawn pose."""
+    --design, the spawn pose and the home point (--home)."""
     count, cameras = cfg.sitl.vehicles, not args.no_cameras
     pose = pose or None  # an empty pose is no pose
     if pose and args.scene:
@@ -268,9 +323,21 @@ def _prepare_scene(
             "they cannot be used with --scene (a scene you made yourself "
             "places its own vehicles)"
         )
+    if home is not None and args.scene:
+        raise config.ConfigError(
+            "--home sets the home point of a scene the launcher generates: it "
+            "cannot be used with --scene (a scene you made yourself has its "
+            "own home point)"
+        )
     if pose and args.no_scene:
         print("note: --position/--rotation have no effect with --no-scene")
         pose = None
+    if home is not None and args.no_scene:
+        print(
+            "note: with --no-scene, --home moves only ArduPilot's home; the "
+            "simulator keeps the home point of the scene it has loaded"
+        )
+        home = None
     design_name = getattr(args, "design", None)
     if design_name and args.scene:
         raise config.ConfigError(
@@ -292,6 +359,7 @@ def _prepare_scene(
             window=window,
             design=design,
             pose=pose,
+            home=home,
         )
         print(
             f"generated {cfg.scene.scene} ({count} vehicle(s)) "
@@ -309,7 +377,7 @@ def _prepare_scene(
                     f"(receive them with mrrsim_camera.CameraReceiver)"
                 )
         return
-    if cameras and not pose:
+    if cameras and not pose and home is None:
         if args.scene:
             # the student's own scene is used as it is; doctor checks that it
             # matches
@@ -329,6 +397,7 @@ def _prepare_scene(
         cameras=cameras,
         window=window,
         pose=pose,
+        home=home,
     )
     notes = (
         ", cameras disabled"
@@ -348,9 +417,9 @@ def _prepare_scene(
 
 
 def _watch_stop_file(path: Path) -> None:
-    """Let another program (the window) ask for a graceful stop: every time
-    `path` is created or touched, behave as if Ctrl+C was pressed. The first
-    press lets the script land the vehicle, the second stops it at once."""
+    """Let another program (the window) ask for a stop: every time `path` is
+    created or touched, behave as if Ctrl+C was pressed (the script is killed
+    at once, then everything else is shut down)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.unlink(missing_ok=True)
 
@@ -379,9 +448,10 @@ def cmd_up(cfg: config.Config, args: argparse.Namespace) -> int:
     code, or 2 when there is no script to run."""
     _apply_script_and_vehicles(cfg, args)
     pose = _apply_script_arguments(cfg, args)
+    home = _apply_home(cfg, args)
     _apply_window_options(cfg, args)
     cfg.validate()
-    _prepare_scene(cfg, args, pose)
+    _prepare_scene(cfg, args, pose, home)
     want_script = not args.no_script
     if want_script and not cfg.scripts.main:
         print(
@@ -839,8 +909,24 @@ def _add_up_options(up: argparse.ArgumentParser, *, is_up: bool) -> None:
         "-i N, and show their output as [drone N] ...",
     )
     up.add_argument(
+        "--copy-env",
+        action="append",
+        metavar="NAME=V1,V2,...",
+        help="with --per-vehicle: give each copy its own value of the "
+        "environment variable NAME (copy N gets the Nth value; one value "
+        "per vehicle); repeatable",
+    )
+    up.add_argument(
+        "--home",
+        metavar="LAT,LON[,ALT,HEADING]",
+        help="where the simulation starts: the simulator's home point and "
+        "ArduPilot's (instead of [sitl] home); LAT,LON keeps [sitl] home's "
+        "altitude and heading (a negative latitude needs the equals sign: "
+        "--home=-33.86,151.21). Not together with --scene",
+    )
+    up.add_argument(
         "--stop-file", help=argparse.SUPPRESS
-    )  # touched by the window to request a graceful stop
+    )  # touched by the window to request a stop
     up.add_argument(
         "--keep",
         action="store_true",

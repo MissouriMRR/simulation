@@ -1,4 +1,4 @@
-"""The Run tab: pick a script, press Run.
+"""The Run tab: pick a script, press Run (or Run IARC: the file as IARC-10's flight code, four drones; see commands.py).
 
 The tab starts the command-line launcher through the shared `Runner` (see ui/common/launcher_process.py) and receives its
 output line by line from the window (`handle_line`, `handle_exit`). Where the output and the values are shown, and the
@@ -21,6 +21,8 @@ from ..common.values import ValueTiles, value_line
 from ..simulator import embed
 from .commands import (
     DOCTOR_SUMMARY,
+    IARC_DESIGN,
+    IARC_VEHICLES,
     MAX_VEHICLES,
     PROGRESS,
     PROVIDED_CHOICE,
@@ -29,6 +31,9 @@ from .commands import (
     build_run_command,
     doctor_command,
     doctor_status,
+    iarc_command,
+    iarc_drones,
+    iarc_ports_problem,
     line_tag,
     pip_command,
     pip_status,
@@ -47,7 +52,7 @@ class RunTab(ttk.Frame):
         self.font, self.font_bold, self.font_title, self.font_status = app.font, app.font_bold, app.font_title, app.font_status
         self.infos: dict[str, scripts.ScriptInfo] = {}
         self.project_nodes: dict[str, Path] = {}  # tree item of a project's heading -> the project folder
-        self.stop_presses = 0
+        self.stopping = False  # Stop was pressed during this run
         self.utility: str | None = None  # the utility run (doctor or a package install) going or last run; None: a simulation
         self.doctor_summary: tuple[int, int, int] | None = None  # (checks, failed, warnings) of the last doctor run
         self._build()
@@ -155,15 +160,17 @@ class RunTab(ttk.Frame):
 
         buttons = ttk.Frame(right)
         buttons.grid(row=8, column=0, sticky="ew")
-        buttons.columnconfigure(2, weight=1)  # pushes the safety buttons to the right edge
+        buttons.columnconfigure(3, weight=1)  # pushes the safety buttons to the right edge
         self.run_button = ttk.Button(buttons, text="Run", command=self.run, style="Accent.TButton")
         self.run_button.grid(row=0, column=0)
-        self.stop_button = ttk.Button(buttons, text="Stop (land)", command=self.stop)
-        self.stop_button.grid(row=0, column=1, padx=(self.px(10), 0))
+        self.iarc_button = ttk.Button(buttons, text="Run IARC", command=self.run_iarc)
+        self.iarc_button.grid(row=0, column=1, padx=(self.px(10), 0))
+        self.stop_button = ttk.Button(buttons, text="Stop", command=self.stop)
+        self.stop_button.grid(row=0, column=2, padx=(self.px(10), 0))
         self.check_button = ttk.Button(buttons, text="Run doctor", command=self.check)
-        self.check_button.grid(row=0, column=3, padx=(0, self.px(10)))
+        self.check_button.grid(row=0, column=4, padx=(0, self.px(10)))
         self.kill_button = ttk.Button(buttons, text="Kill Unreal", command=self.kill, style="Danger.TButton")
-        self.kill_button.grid(row=0, column=4)
+        self.kill_button.grid(row=0, column=5)
         self.status = ttk.Label(right, text="", font=self.font_status, justify="left")
         self.status.grid(row=9, column=0, sticky="ew", pady=(self.px(10), 0))
         # long texts wrap at the panel's width, whatever size the window is
@@ -343,8 +350,7 @@ class RunTab(ttk.Frame):
             messagebox.showerror("MRRSimulator", f"Vehicles must be a number from 1 to {MAX_VEHICLES}.")
             return
         size = self.resolution.get().strip()
-        if size and not valid_resolution(size):
-            messagebox.showerror("MRRSimulator", "The simulator window size must look like 960x540.")
+        if not self._size_ok(size):
             return
         typed = self.script_args.get().strip()
         try:
@@ -356,8 +362,48 @@ class RunTab(ttk.Frame):
         scripts.save_args(info.path, typed)  # remembered for the next time this script is picked
         command = build_run_command(self.cfg.source, info.path, count, self.cameras_off.get(), size or None,
                                     project=info.project, script_args=typed, design=design)
-        self.app.note(f"--- running {info.name} with {count} vehicle(s)" + (f" of the design \"{design}\"" if design else "")
-                      + " ---")
+        self._launch(command, f"--- running {info.name} with {count} vehicle(s)"
+                     + (f" of the design \"{design}\"" if design else "") + " ---")
+
+    def run_iarc(self) -> None:
+        """The Run IARC button: the selected file as IARC-10's flight code, flying the mission with IARC_VEHICLES IARC
+        Drones at the Huntsville field, each copy at its drone's IP from mission_config.json (see commands.py). The
+        Vehicles box, the vehicle choice and the script arguments are not used; the cameras-off box is."""
+        info = self.selected()
+        if self.runner.running or info is None:
+            return
+        size = self.resolution.get().strip()
+        if not self._size_ok(size):
+            return
+        try:
+            drones = iarc_drones(info.project)
+            copied = self.library.ensure_shipped()  # the IARC Drone, if it is not in the designs folder yet
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("MRRSimulator", str(exc))
+            return
+        if copied:  # now it is in the lists too
+            self.refresh_design_choices()
+            self.app.vehicles_tab.refresh_designs()
+        why = iarc_ports_problem(drones)
+        if why:
+            messagebox.showerror("MRRSimulator", why)
+            return
+        command = iarc_command(self.cfg.source, info.path, drones, self.cameras_off.get(), size or None,
+                               project=info.project)
+        self._launch(command, f"--- running {info.name} in IARC mode: {IARC_VEHICLES} drones of the design "
+                              f"\"{IARC_DESIGN}\", one copy of the file each, at "
+                              + ", ".join(f"{ip}:{port}" for _n, ip, port in drones) + " ---")
+
+    def _size_ok(self, size: str) -> bool:
+        """Can the simulator window be `size` ("" is the configured size)? If not, says so."""
+        if size and not valid_resolution(size):
+            messagebox.showerror("MRRSimulator", "The simulator window size must look like 960x540.")
+            return False
+        return True
+
+    def _launch(self, command: list[str], note: str) -> None:
+        """Start a simulation with `command`, after `note` in the output; the simulator goes into its tab if wanted."""
+        self.app.note(note)
         self.utility = None
         self.app.reset_values()
         self._set_running("Starting...")
@@ -451,27 +497,18 @@ class RunTab(ttk.Frame):
         if not active:
             self.status.configure(text="Unreal killed")
             return
-        # the first request lets the script give up gracefully, the second (a moment later) skips its grace time
-        self.stop_presses = 2
+        self.stopping = True
         self.runner.request_stop()
-        self.root.after(1500, self.runner.request_stop)
-        self.stop_button.configure(text="Stop now")
         self.status.configure(text="Unreal killed: stopping everything...")
 
     def stop(self) -> None:
-        """The Stop button. A simulation: the first press lets the script land the vehicle, the second stops it at
-        once. The doctor or a package install: stops it."""
+        """The Stop button: the script (or the doctor, or a package install) is killed at once, then the launcher
+        shuts everything down. Nothing is expected of the script, landing included."""
         if not self.runner.running:
             return
-        self.stop_presses += 1
+        self.stopping = True
         self.runner.request_stop()
-        if self.utility is not None:
-            self.status.configure(text="Stopping...")
-        elif self.stop_presses == 1:
-            self.status.configure(text="Stopping: the script is landing the vehicle...")
-            self.stop_button.configure(text="Stop now")
-        else:
-            self.status.configure(text="Stopping now...")
+        self.status.configure(text="Stopping...")
 
     # ------------------------------------------------------------------------------------ the launcher's output
     def handle_line(self, text: str) -> None:
@@ -484,7 +521,7 @@ class RunTab(ttk.Frame):
         summary = DOCTOR_SUMMARY.search(text) if self.utility == "doctor" else None
         if summary:
             self.doctor_summary = tuple(int(n) for n in summary.groups())  # type: ignore[assignment]
-        if self.utility is None and not self.stop_presses:
+        if self.utility is None and not self.stopping:
             for fragment, message in PROGRESS:
                 if fragment in text:
                     self.status.configure(text=message)
@@ -504,21 +541,21 @@ class RunTab(ttk.Frame):
         self.app.note(f"--- finished (exit code {code}) ---")
 
     def _set_running(self, status: str) -> None:
-        """Something is running: the buttons that start things are off and Stop is on (a simulation's lands first)."""
-        self.stop_presses = 0
+        """Something is running: the buttons that start things are off and Stop is on."""
+        self.stopping = False
         self.run_button.state(["disabled"])
+        self.iarc_button.state(["disabled"])
         self.check_button.state(["disabled"])
         self.install_button.state(["disabled"])
-        self.stop_button.configure(text="Stop (land)" if self.utility is None else "Stop")
         self.stop_button.state(["!disabled"])
         self.status.configure(text=status)
 
     def _set_idle(self, status: str) -> None:
         """Nothing is running: the buttons that start things are on and Stop is off."""
         self.run_button.state(["!disabled"])
+        self.iarc_button.state(["!disabled"])
         self.check_button.state(["!disabled"])
         self.install_button.state(["!disabled"])
-        self.stop_button.configure(text="Stop (land)")
         self.stop_button.state(["disabled"])
         self.status.configure(text=status)
 

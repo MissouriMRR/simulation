@@ -1,6 +1,7 @@
 """How a session shuts down (what it says at each step, and that one failing
 step does not stop the rest), the run-state file, and the script helpers."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -172,6 +173,12 @@ class ScriptHelpers(unittest.TestCase):
         env = self.sess._script_env(mounts)
         self.assertEqual(env["PYTHONPATH"], "/work:/packages:" + session.SCRIPT_LIB)
 
+    def test_per_copy_values_reach_the_fleet_runner_as_json(self):
+        self.assertNotIn("MRRSIM_COPY_ENV", self.sess._script_env([]))
+        self.sess.cfg.scripts.copy_env = {"SITL_MAVLINK_HOST": ["127.0.0.1"]}
+        env = self.sess._script_env([])
+        self.assertEqual(json.loads(env["MRRSIM_COPY_ENV"]), {"SITL_MAVLINK_HOST": ["127.0.0.1"]})
+
     def test_every_vehicle_gets_its_own_connection_string(self):
         env = self.sess._script_env([])
         self.assertEqual(env["SIM_CONNECT"], env["SIM_CONNECT_0"])
@@ -181,6 +188,17 @@ class ScriptHelpers(unittest.TestCase):
         mounts = self.sess._script_mounts()
         self.assertEqual([m.dst for m in mounts[:2]], ["/work", "/out"])
 
+    def test_the_first_ctrl_c_kills_the_script_at_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.sess.dir = Path(tmp)
+            self.sess.podman = mock.Mock()
+            proc = mock.Mock(stdout=iter([]))
+            proc.poll.return_value = None  # the script never exits by itself
+            with mock.patch.object(session.time, "sleep", side_effect=[KeyboardInterrupt]):
+                interrupted = self.sess._wait_for_script(proc)
+        self.assertTrue(interrupted)
+        self.sess.podman.stop.assert_called_once_with([session.SCRIPT_NAME], timeout=0)
+
     def test_a_failure_to_stop_the_script_after_ctrl_c_does_not_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.sess.dir = Path(tmp)
@@ -188,9 +206,7 @@ class ScriptHelpers(unittest.TestCase):
             self.sess.podman.stop.side_effect = PodmanError("boom")
             proc = mock.Mock(stdout=iter([]))
             proc.poll.return_value = None  # the script never exits by itself
-            sleeps = mock.patch.object(
-                session.time, "sleep", side_effect=[KeyboardInterrupt] * 2
-            )
+            sleeps = mock.patch.object(session.time, "sleep", side_effect=[KeyboardInterrupt])
             with sleeps, self.assertLogs("mrrsim", level="INFO") as logs:
                 interrupted = self.sess._wait_for_script(proc)
             self.assertTrue((Path(tmp) / "script.log").is_file())

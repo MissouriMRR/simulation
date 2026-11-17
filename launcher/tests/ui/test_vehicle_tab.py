@@ -43,6 +43,11 @@ class Tab(unittest.TestCase):
         wd.start()
         self.addCleanup(wd.stop)
         self.cfg = config.load(paths.repo_root() / "config" / "mrrsim.toml")
+        # these tests start from an empty designs folder; the shipped designs (the IARC Drone) are tested in
+        # test_vehicle_design.py and test_app.py
+        shipped = mock.patch.object(vd.Library, "ensure_shipped", return_value=[])
+        shipped.start()
+        self.addCleanup(shipped.stop)
         self.app = window.App(self.root, self.cfg)
         self.tab = self.app.vehicles_tab
         self.root.deiconify()

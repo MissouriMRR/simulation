@@ -629,6 +629,8 @@ class Session:
             )
         for vp in self.vehicles:
             env[f"SIM_CONNECT_{vp.index}"] = vp.connect_string()
+        if self.cfg.scripts.copy_env:  # one value per copy: mrrsim_fleet hands them out
+            env["MRRSIM_COPY_ENV"] = json.dumps(self.cfg.scripts.copy_env)
         return env
 
     def _script_mounts(self) -> list[Mount]:
@@ -674,10 +676,9 @@ class Session:
 
     def _wait_for_script(self, proc) -> bool:
         """Show the script's output (and write it to script.log) until it
-        exits. Ctrl+C gives it `stop_grace_s` to finish, e.g. to land; a second
-        Ctrl+C, or the grace running out, stops it. Returns whether Ctrl+C was
-        pressed."""
-        sc = self.cfg.scripts
+        exits. Ctrl+C (or the window's Stop) kills it at once: nothing is
+        expected of a script that is being stopped, landing included. Returns
+        whether Ctrl+C was pressed."""
         interrupted = False
         with open(self.dir / "script.log", "w", encoding="utf-8") as log_file:
             reader = threading.Thread(
@@ -691,21 +692,11 @@ class Session:
                     time.sleep(0.2)
             except KeyboardInterrupt:
                 interrupted = True
-                LOG.warning(
-                    "Ctrl+C: giving the script %.0f s to finish (e.g. land); "
-                    "Ctrl+C again to stop it now",
-                    sc.stop_grace_s,
-                )
-                try:
-                    deadline = time.monotonic() + sc.stop_grace_s
-                    while proc.poll() is None and time.monotonic() < deadline:
-                        time.sleep(0.2)
-                except KeyboardInterrupt:
-                    pass
+                LOG.warning("Ctrl+C: stopping the script")
                 if proc.poll() is None:
                     self._safe(
                         f"stopping the script container ({SCRIPT_NAME})",
-                        lambda: self.podman.stop([SCRIPT_NAME], timeout=5),
+                        lambda: self.podman.stop([SCRIPT_NAME], timeout=0),
                     )
             reader.join(timeout=5)
         return interrupted

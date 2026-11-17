@@ -11,6 +11,9 @@ scipy
 shapely
 siyi-sdk
 typing-extensions
+# IARC-10's simulated camera (vision/Cameras/MrrsimCamera) runs its YOLO .pt model with it. Its PyTorch is the
+# CPU-only build, which the Containerfile installs first.
+ultralytics
 utm
 # needed by tornado 4.5.3, which the airsim client fork pulls in
 backports-ssl-match-hostname>=3.7.0.1

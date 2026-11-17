@@ -1,6 +1,7 @@
 """What the Run tab says to the launcher and how it reads the launcher's answers (no widgets, so it is tested directly)."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -11,6 +12,24 @@ RESOLUTIONS = ["1280x720", "960x540", "640x360"]
 PROVIDED_CHOICE = "Provided vehicle"  # the Run tab's vehicle choice that means 'no design'
 MAX_VEHICLES = ports.MAX_VEHICLES
 STOPPED = 130  # the launcher's exit code after Ctrl+C or the Stop button
+
+# IARC mode (the Run IARC button): the selected file run as IARC-10's flight code (its run.py). That code flies ONE
+# drone per copy, so the launcher starts one copy per vehicle, copy N with -i N (--per-vehicle, see
+# containers/script/mrrsim_fleet.py). The values come from IARC-10:
+# - each drone has its own IP and TCP port in the project's mission_config.json (drone_info): the drones talk to each
+#   other on them, and each copy reaches its own SITL at its IP (IARC reads that host from SITL_MAVLINK_HOST);
+# - its field is in Huntsville (mission_config.json, mission_field_corners): IARC_HOME is the middle of the start edge,
+#   between corners 1 and 2;
+# - its drones stand on a north-south line (state_machine/states/impl/poif_impl.py, ENTRY_BEARING_DEG): drone 1 at the
+#   home point, the others IARC_SPACING_M apart to the north (+x), facing north.
+IARC_VEHICLES = 4
+IARC_CONFIG = "mission_config.json"  # in the project folder: the file run.py reads when it is not given --config
+IARC_DESIGN = "IARC Drone"  # the vehicle (sim_config/designs; its camera stream is off until turned on in Vehicles)
+IARC_HOME = "34.6251269,-86.8091462"
+IARC_SPACING_M = 5.0
+IARC_SPAWN_Z = -15.0  # the provided scene's spawn height (sim_config/scene_ardupilot_quadrotor.jsonc, NED: up is -z)
+IARC_ARGS = "--airsim --auto-start mission " + " ".join(
+    f"--vehicle-pose {i}={IARC_SPACING_M * i:g},0,{IARC_SPAWN_Z:g},0,0,0" for i in range(IARC_VEHICLES))
 
 # a fragment of a launcher log line -> what to tell the student (test_commands.py checks the launcher still logs each)
 PROGRESS = [
@@ -34,7 +53,8 @@ def _launcher(config_file: Path, *args: str) -> list[str]:
 
 def build_run_command(
     config_file: Path, script: Path, vehicles: int, cameras_off: bool, resolution: str | None,
-    project: Path | None = None, script_args: str = "", design: str | None = None,
+    project: Path | None = None, script_args: str = "", design: str | None = None, per_vehicle: bool = False,
+    home: str | None = None, copy_env: dict[str, list[str]] | None = None,
 ) -> list[str]:
     """The command of a simulation run: `mrrsim run <script>` with the options picked in the Run tab."""
     command = _launcher(config_file, "run", str(script), "--vehicles", str(vehicles))
@@ -48,7 +68,58 @@ def build_run_command(
         command.append("--no-cameras")
     if resolution:
         command += ["--resolution", resolution]
+    if per_vehicle:
+        command.append("--per-vehicle")
+    if home:
+        command += ["--home", home]
+    for name, values in (copy_env or {}).items():
+        command += ["--copy-env", f"{name}={','.join(values)}"]
     return command
+
+
+Drone = tuple[int, str, int]  # a drone of mission_config.json: its id, IP and TCP port
+
+
+def iarc_drones(project: Path | None) -> list[Drone]:
+    """Drones 1 .. IARC_VEHICLES of the project's mission_config.json (drone_info). ValueError says what is wrong."""
+    if project is None:
+        raise ValueError("Run IARC runs a file of a project folder: add the IARC-10 folder (Add project folder...) and "
+                         "pick its run.py.")
+    path = project / IARC_CONFIG
+    try:
+        listed = {int(d["id"]): (str(d["IP"]), int(d["port"]))
+                  for d in json.loads(path.read_text(encoding="utf-8-sig"))["drone_info"]}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f"Could not read the drones (drone_info) of {path}:\n{exc}") from None
+    missing = [n for n in range(1, IARC_VEHICLES + 1) if n not in listed]
+    if missing:
+        raise ValueError(f"{path} has no drone {', '.join(map(str, missing))} in drone_info; IARC mode flies drones "
+                         f"1 to {IARC_VEHICLES}.")
+    return [(n, *listed[n]) for n in range(1, IARC_VEHICLES + 1)]
+
+
+def iarc_command(config_file: Path, script: Path, drones: list[Drone], cameras_off: bool, resolution: str | None,
+                 project: Path | None = None) -> list[str]:
+    """The command of the Run IARC button: `script` as IARC-10's flight code, one copy per drone, flying the IARC Drone
+    with IARC_ARGS from IARC_HOME; copy N reaches its SITL at drone N's IP."""
+    return build_run_command(config_file, script, IARC_VEHICLES, cameras_off, resolution, project=project,
+                             script_args=IARC_ARGS, design=IARC_DESIGN, per_vehicle=True, home=IARC_HOME,
+                             copy_env={"SITL_MAVLINK_HOST": [ip for _number, ip, _port in drones]})
+
+
+def iarc_ports_problem(drones: list[Drone]) -> str | None:
+    """Which drone's TCP port another program holds (and which program), or None when they are all free. A port is
+    checked on the drone's IP and on 0.0.0.0, where IARC's server listens. A drone whose port is taken would wait
+    forever, saying nothing."""
+    busy = [(n, ip, port) for n, ip, port in drones
+            if not (ports.port_is_free(port, "tcp", host=ip) and ports.port_is_free(port, "tcp", host="0.0.0.0"))]
+    if not busy:
+        return None
+    who = ports.who_uses([(port, "tcp") for _n, _ip, port in busy])
+    taken = "; ".join(f"drone {n} ({ip}:{port})" + (f" by {who[(port, 'tcp')]}" if (port, "tcp") in who else "")
+                      for n, ip, port in busy)
+    return (f"IARC mode needs each drone's TCP port from {IARC_CONFIG}: the drones talk to each other on them. "
+            f"In use: {taken}.\nClose that program (or end the earlier run) and try again.")
 
 
 def doctor_command(config_file: Path) -> list[str]:

@@ -25,7 +25,7 @@ from .simulator.simulator_tab import SimulatorTab
 from .vehicles.vehicle_tab import VehiclesTab
 
 POLL_MS = 100       # how often the window takes what the launcher printed
-CLOSE_WAIT_S = 60   # closing during a run: how long the script gets to land before the launcher is killed
+CLOSE_WAIT_S = 60   # closing during a run: how long the launcher gets to shut everything down before it is killed
 
 
 class App:
@@ -107,6 +107,10 @@ class App:
         self.tabs = ttk.Notebook(root)  # Run | Vehicles | Simulator
         self.tabs.grid(row=0, column=0, sticky="nsew")
         self.library = vehicle_design.Library(paths.vehicles_dir(), self.cfg.scene.config_dir)
+        try:
+            self.library.ensure_shipped()  # the IARC Drone and any other shipped design: in every list from the start
+        except OSError:
+            pass  # the folder cannot be written now; Run IARC tries again and says why
         self.run_tab = RunTab(self.tabs, self)
         self.tabs.add(self.run_tab, text="Run")
         self.vehicles_tab = VehiclesTab(self.tabs, self, self.library, on_selection_changed=self.run_tab.refresh_design_choices)
@@ -199,7 +203,7 @@ class App:
 
     def on_close(self) -> None:
         """The window's close button. Unsaved design changes are asked about; a running simulation is stopped first
-        (the script lands the vehicle), and the window closes when it has."""
+        (the script is killed and the launcher shuts everything down), and the window closes when it has."""
         if not self.vehicles_tab.confirm_discard():  # unsaved changes to a vehicle design
             return
         if self.runner.running:

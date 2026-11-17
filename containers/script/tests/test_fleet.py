@@ -48,9 +48,14 @@ class Helpers(unittest.TestCase):
         self.assertEqual(env["SIM_CAMERA_PORT"], "5603")
         self.assertEqual(env["A"], "1")
 
-    def test_without_a_streaming_camera_the_environment_is_left_alone(self):
-        env = mrrsim_fleet.child_env({"A": "1"}, 0, None)
-        self.assertEqual(env, {"A": "1"})
+    def test_without_a_streaming_camera_each_copy_still_gets_its_own_picture_port(self):
+        env = mrrsim_fleet.child_env({"A": "1"}, 1, None)
+        self.assertEqual(env, {"A": "1", "SIM_CAMERA_PORT": str(mrrsim_camera.DEFAULT_PORT + 2)})
+
+    def test_copy_env_gives_each_copy_its_own_value(self):
+        copy_env = '{"SITL_MAVLINK_HOST": ["127.0.0.1", "127.0.0.2", "127.0.0.3"]}'
+        env = mrrsim_fleet.child_env({"MRRSIM_COPY_ENV": copy_env}, 2, None)
+        self.assertEqual(env["SITL_MAVLINK_HOST"], "127.0.0.3")
 
     def test_a_signal_death_is_a_shell_style_code(self):
         self.assertEqual(mrrsim_fleet.exit_code(0), 0)
@@ -172,6 +177,12 @@ class Fleet(unittest.TestCase):
         _, lines = self.run_fleet(script, vehicles=2, SIM_CAMERA_PORT=str(port))
         self.assertIn(f"[drone 1] port {port + 1}", lines)
         self.assertIn(f"[drone 2] port {port + 2}", lines)
+
+    def test_every_copy_gets_its_own_values_and_a_picture_port_without_a_camera(self):
+        script = self.script("import os; print('host', os.environ['SITL_MAVLINK_HOST'], os.environ['SIM_CAMERA_PORT'])")
+        _, lines = self.run_fleet(script, vehicles=2, MRRSIM_COPY_ENV='{"SITL_MAVLINK_HOST": ["127.0.0.1", "127.0.0.2"]}')
+        self.assertIn(f"[drone 1] host 127.0.0.1 {mrrsim_camera.DEFAULT_PORT + 1}", lines)
+        self.assertIn(f"[drone 2] host 127.0.0.2 {mrrsim_camera.DEFAULT_PORT + 2}", lines)
 
     def test_no_script_is_a_usage_error(self):
         with contextlib.redirect_stderr(io.StringIO()):

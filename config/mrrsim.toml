@@ -71,6 +71,5 @@ image = "localhost/mrrsim-script:runtime"   # use ...:airsim if the script impor
 dir = "../scripts"
 main = "takeoff_land.py"
 args = []
-stop_grace_s = 25                # time a script gets after Ctrl+C (e.g. to LAND) before it is killed
 overlay = true
 per_vehicle = false

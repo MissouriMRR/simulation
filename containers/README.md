@@ -64,6 +64,9 @@ to go back to podman's own rootless networking.
 - **The airsim image also has what the team's flight code imports**: `script/requirements-airsim.txt`
   (`utm`, `scipy`, `shapely`, `aiohttp`, `onnxruntime`, `pyodm`, `siyi-sdk`, ...) and the old `airsim` client
   (heitmeih/AirSim-fixed-pyinstall, pinned to a commit). The image build checks that they all import.
+- **`ultralytics`** (in `script/requirements-airsim.txt`) runs IARC-10's YOLO model in the simulated camera. Its
+  PyTorch is the CPU-only build from download.pytorch.org, installed first by the Containerfile: the container has
+  no GPU, and PyPI's build would add about 3 GB of NVIDIA libraries.
 - **`script/fetch_client.py`** downloads the Project AirSim client and the `airsim` fork: a blobless clone lists the
   folder's files and hashes, the files come from raw.githubusercontent.com, each checked against its git hash.
   `git sparse-checkout` and pip's `git+https` were replaced because GitHub began answering their lazy blob

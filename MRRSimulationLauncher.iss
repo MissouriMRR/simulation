@@ -7,7 +7,7 @@
 ; DO NOT CHANGE "AppId" DO NOT CHANGE EVER
 #define AppGuid "99C26AA2-5C27-4D7E-897F-35C5B653CDF7"
 #define AppName "MRRSimulator"
-#define AppVersion "0.2.0"
+#define AppVersion "0.3.1"
 #define AppPublisher "S&T Multirotor Design Team"
 #define LauncherExe "MRRSimulator.exe"
 ; The window (built without a console); it runs LauncherExe in the background
@@ -817,7 +817,7 @@ begin
     Result := False;
     Exit;
   end;
-  
+
   Blocks := '';
   Warnings := '';
 
@@ -857,7 +857,7 @@ begin
       Warnings := Warnings + '- This is an older Intel GPU. The simulator may run slowly; ' +
         'use the Low graphics preset.' + NL;
   end;
-  
+
   // Visual C++ runtime
   if not VCRedistInstalled then
     Warnings := Warnings + '- The Microsoft Visual C++ runtime is missing or out of date. ' +

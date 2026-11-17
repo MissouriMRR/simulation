@@ -23,6 +23,8 @@ Nothing is bundled yet because the exact files come from your Project AirSim che
 | UDP: sim receives motor control | 9002 | 9012 | 9002 + 10i |
 
 - The scene's home geo-point must match `[sitl] home` in `config/mrrsim.toml` (`mrrsim doctor` warns when it does not).
+  To start somewhere else for one run, pass `--home LAT,LON` to `mrrsim run` or `up`: it generates a copy of the
+  scene with that home point and gives ArduPilot the same one (the Run tab's Run IARC button uses it).
 - One robot per vehicle, each at a different position.
 
 `mrrsim doctor` (and the preflight of `mrrsim up`) checks that the scene file exists and that it has

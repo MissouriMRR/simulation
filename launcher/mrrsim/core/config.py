@@ -182,7 +182,6 @@ class ScriptsCfg:
     dir: Path = Path("../scripts")
     main: str = ""
     args: list[str] = field(default_factory=list)
-    stop_grace_s: float = 25.0
     # The script may write into its folder: the writes go to a scratch layer and
     # the folder itself stays untouched (the Project AirSim client always writes
     # projectairsim_client.log into its working folder).
@@ -190,6 +189,9 @@ class ScriptsCfg:
     # For a program that flies one vehicle (it takes its drone number as -i N):
     # start one copy per vehicle (see containers/script/mrrsim_fleet.py).
     per_vehicle: bool = False
+    # --copy-env NAME=V1,V2,...: a variable with one value per copy (per_vehicle);
+    # not a setting (init=False: mrrsim.toml cannot give it)
+    copy_env: dict = field(default_factory=dict, init=False)
 
 
 # === THE WHOLE CONFIGURATION ==================================================

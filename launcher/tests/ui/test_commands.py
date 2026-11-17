@@ -1,11 +1,17 @@
 """ui/run/commands.py: what the Run tab says to the launcher and how it reads the answers. Always runs (no window)."""
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from mrrsim import cli
 from mrrsim.core import config, paths
+from mrrsim.scene import poseargs, scenecheck
 from mrrsim.ui.run import commands
+from mrrsim.userscripts import scripts
+
+DRONES = [(n, f"127.0.0.{n}", 5000 + n) for n in (1, 2, 3, 4)]  # as IARC-10's mission_config.json lists them
 
 SOURCE = paths.repo_root() / "launcher" / "mrrsim"
 
@@ -43,7 +49,8 @@ class RunCommand(unittest.TestCase):
         for command in (commands.build_run_command(Path("c.toml"), Path("a.py"), 2, True, "960x540", project=Path("p"),
                                                    script_args="-s", design="Quad"),
                         commands.doctor_command(Path("c.toml")), commands.pip_command(Path("c.toml"), False, ["tqdm"]),
-                        commands.pip_command(Path("c.toml"), True, ["tqdm"])):
+                        commands.pip_command(Path("c.toml"), True, ["tqdm"]),
+                        commands.iarc_command(Path("c.toml"), Path("run.py"), DRONES, False, None, project=Path("p"))):
             args = parser.parse_args(command[1:])
             self.assertEqual(args.stop_file, self.stop, command)
 
@@ -53,6 +60,73 @@ class RunCommand(unittest.TestCase):
         for bad in ("", "960", "10x10", "axb", "960x540x1", "99999x1", f"{config.MIN_PIXELS - 1}x540",
                     f"960x{config.MAX_PIXELS + 1}"):
             self.assertFalse(commands.valid_resolution(bad), bad)
+
+
+class IarcMode(unittest.TestCase):
+    def setUp(self):
+        for patch in (mock.patch.object(commands, "cli_command", return_value=["mrrsim"]),
+                      mock.patch.dict("os.environ", {"MRRSIM_DATA_DIR": "D:/data"})):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_four_iarc_drones_one_copy_each_fly_the_mission_from_huntsville_at_their_own_ips(self):
+        command = commands.iarc_command(Path("c.toml"), Path("p/run.py"), DRONES, True, "960x540", project=Path("p"))
+        args = cli.build_parser().parse_args(command[1:])
+        self.assertEqual((args.vehicles, args.per_vehicle, args.home, args.design, args.resolution, args.no_cameras),
+                         (4, True, "34.6251269,-86.8091462", "IARC Drone", "960x540", True))
+        self.assertEqual(args.project, str(Path("p")))
+        self.assertEqual(args.copy_env, ["SITL_MAVLINK_HOST=127.0.0.1,127.0.0.2,127.0.0.3,127.0.0.4"])
+        kept, pose = poseargs.extract(scripts.split_args(args.script_args), commands.IARC_VEHICLES)
+        self.assertEqual(kept, ["--airsim", "--auto-start", "mission"])            # what run.py gets (and -i N)
+        self.assertEqual([pose.vehicles[i] for i in range(4)],                      # a north-south line, facing north
+                         [(5.0 * i, 0.0, commands.IARC_SPAWN_Z, 0.0, 0.0, 0.0) for i in range(4)])
+
+    def test_the_drones_spawn_at_the_height_of_the_provided_scene(self):
+        scene = scenecheck.load_jsonc(paths.repo_root() / "sim_config" / "scene_ardupilot_quadrotor.jsonc")
+        robot = next(a for a in scene["actors"] if a.get("type") == "robot")
+        self.assertEqual(float(robot["origin"]["xyz"].split()[2]), commands.IARC_SPAWN_Z)
+
+    def write_config(self, folder: Path, drone_info) -> None:
+        (folder / commands.IARC_CONFIG).write_text(json.dumps({"self_id": 1, "drone_info": drone_info}), encoding="utf-8")
+
+    def test_the_drones_are_read_from_the_projects_mission_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            info = [{"id": n, "IP": f"10.0.0.{n}", "port": 6000 + n} for n in (4, 3, 2, 1, 5)]   # any order, extras ignored
+            self.write_config(folder, info)
+            self.assertEqual(commands.iarc_drones(folder), [(n, f"10.0.0.{n}", 6000 + n) for n in (1, 2, 3, 4)])
+            self.write_config(folder, info[1:4])                                                 # no drone 4
+            with self.assertRaisesRegex(ValueError, "no drone 4"):
+                commands.iarc_drones(folder)
+            (folder / commands.IARC_CONFIG).write_text("{not json", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Could not read the drones"):
+                commands.iarc_drones(folder)
+            (folder / commands.IARC_CONFIG).unlink()
+            with self.assertRaisesRegex(ValueError, "Could not read the drones"):
+                commands.iarc_drones(folder)
+        with self.assertRaisesRegex(ValueError, "project folder"):
+            commands.iarc_drones(None)
+
+    def test_each_port_is_checked_on_its_drones_ip_and_where_the_server_listens(self):
+        asked = []
+
+        def free(port, proto="tcp", host=None):
+            asked.append((port, host))
+            return not (port == 5002 and host == "0.0.0.0") and not (port == 5004 and host == "127.0.0.4")
+
+        with mock.patch.object(commands.ports, "port_is_free", side_effect=free), \
+                mock.patch.object(commands.ports, "who_uses", return_value={(5002, "tcp"): "Other.exe (pid 7)"}):
+            said = commands.iarc_ports_problem(DRONES)
+        self.assertIn((5003, "127.0.0.3"), asked)
+        self.assertIn((5003, "0.0.0.0"), asked)
+        self.assertIn("drone 2 (127.0.0.2:5002) by Other.exe (pid 7); drone 4 (127.0.0.4:5004).", said)
+        with mock.patch.object(commands.ports, "port_is_free", return_value=True):
+            self.assertIsNone(commands.iarc_ports_problem(DRONES))
+
+    def test_on_this_computer_every_drone_ip_of_the_loopback_range_can_be_checked(self):
+        port = 0  # let the system pick: only that binding works on each address is checked, not a particular port
+        for _n, ip, _port in DRONES:
+            self.assertTrue(commands.ports.port_is_free(port, "tcp", host=ip), ip)
 
 
 class ReadingTheAnswers(unittest.TestCase):

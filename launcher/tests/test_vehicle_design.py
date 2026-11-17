@@ -568,6 +568,33 @@ class Library(unittest.TestCase):
         self.lib.select("A")
         self.assertEqual(self.lib.names(), ["A"])
 
+    def test_shipped_designs_are_copied_in_once_and_a_students_copy_is_never_replaced(self):
+        self.assertEqual(self.lib.ensure_shipped(), [])                       # nothing shipped: nothing to do
+        shipped = self.sim / vd.SHIPPED_DIR
+        shipped.mkdir()
+        (shipped / "IARC Drone.jsonc").write_text(PROVIDED.read_text(encoding="utf-8"), encoding="utf-8")
+        self.assertEqual(self.lib.ensure_shipped(), ["IARC Drone"])
+        self.assertEqual(self.lib.names(), ["IARC Drone"])
+        self.assertEqual([p.name for p in self.lib.provided()], ["robot_a.jsonc"])   # not a provided vehicle
+        mine = self.lib.load("IARC Drone")
+        mine.doc["physics-type"] = "changed by the student"
+        self.lib.save(mine)
+        self.assertEqual(self.lib.ensure_shipped(), [])
+        self.assertEqual(self.lib.load("IARC Drone").doc["physics-type"], "changed by the student")
+
+    def test_the_shipped_iarc_drone_flies_here_with_its_camera_stream_off_and_down_camera_at_90_degrees(self):
+        from mrrsim.scene import camerastream
+
+        path = paths.repo_root() / "sim_config" / vd.SHIPPED_DIR / "IARC Drone.jsonc"
+        design = vd.Design(scenecheck.load_jsonc(path), name="IARC Drone")
+        self.assertEqual([i.message for i in design.issues() if i.level == "error"], [])
+        self.assertFalse(design.runnable_problem())
+        self.assertEqual(camerastream.streams(design.doc), [])               # optional: off until ticked in Vehicles
+        down = next(s for s in design.doc["sensors"] if s.get("id") == "DownCamera")
+        self.assertEqual(down[camerastream.STREAM_KEY]["enabled"], False)
+        image = next(c for c in down["capture-settings"] if c["image-type"] == 0)
+        self.assertEqual((image["width"], image["height"], image["fov-degrees"]), (1280, 720, 90))  # IARC's airsim_config
+
     def test_broken_files_give_a_clear_error(self):
         (self.tmp / "vehicles").mkdir()
         (self.tmp / "vehicles" / "Bad.jsonc").write_text("{not json", encoding="utf-8")

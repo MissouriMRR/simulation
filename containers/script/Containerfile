@@ -40,7 +40,10 @@ COPY fetch_client.py /tmp/fetch_client.py
 RUN python /tmp/fetch_client.py "${PROJECTAIRSIM_REPO}" "${PROJECTAIRSIM_REF}" client/python/projectairsim /opt/projectairsim
 # If LiDAR is not needed and open3d fails to resolve, remove it from the client's dependencies before this step.
 RUN pip install /opt/projectairsim
-# What the team's flight code imports besides DroneKit (utm, scipy, shapely, aiohttp, onnxruntime, ...).
+# PyTorch for ultralytics (requirements-airsim.txt), the CPU-only build: the container has no GPU, and PyPI's build
+# brings about 3 GB of NVIDIA libraries it could not use. Installed first, so ultralytics finds it and keeps it.
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+# What the team's flight code imports besides DroneKit (utm, scipy, shapely, aiohttp, onnxruntime, ultralytics, ...).
 COPY requirements-airsim.txt /tmp/requirements-airsim.txt
 RUN pip install -r /tmp/requirements-airsim.txt
 # The old AirSim client the flight code imports as `airsim` (a fork that installs cleanly; pinned to a commit).
@@ -83,5 +86,5 @@ RUN apt-get update \
 COPY --from=builder-airsim /opt/venv /opt/venv
 COPY scene_loader.py camera_relay.py /opt/mrrsim/
 # Checked here, not in the builder: OpenCV needs the system libraries installed above.
-RUN python -W ignore -c "import ctypes.util, utm, scipy, shapely, aiohttp, aiofiles, colorlog, onnxruntime, pyodm, airsim, siyi_sdk, cv2, numpy, dronekit, projectairsim; assert ctypes.util.find_library('zbar'), 'libzbar0 missing'; print('the flight code packages import, and the ZBar library is there')"
+RUN python -W ignore -c "import ctypes.util, utm, scipy, shapely, aiohttp, aiofiles, colorlog, onnxruntime, pyodm, airsim, siyi_sdk, cv2, numpy, dronekit, projectairsim, ultralytics; assert ctypes.util.find_library('zbar'), 'libzbar0 missing'; print('the flight code packages import, and the ZBar library is there')"
 CMD ["python", "--version"]

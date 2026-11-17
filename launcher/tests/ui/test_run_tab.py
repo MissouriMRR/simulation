@@ -1,6 +1,7 @@
 """The Run tab (ui/run/run_tab.py): the script list, the run options, running, stopping, the doctor and package installs.
 The tests that create a (hidden) Tk window only run when MRRSIM_GUI_TESTS=1, so an ordinary test run never touches the
 desktop; to run them without any window appearing, start the test process on a hidden desktop."""
+import json
 import os
 import shutil
 import sys
@@ -109,8 +110,8 @@ class RunTab(unittest.TestCase):
         with mock.patch.object(run_module, "kill_unreal", return_value=1), mock.patch.object(run_module.messagebox, "askyesno", return_value=True), \
                 mock.patch.object(self.app.runner, "request_stop", side_effect=lambda: stops.append(1)):
             self.tab.kill()
-            self.assertEqual(len(stops), 1)  # the first request now, the second 1.5 s later
-            self.assertTrue(self.pump(lambda: len(stops) == 2, 5))
+            self.assertFalse(self.pump(lambda: len(stops) > 1, 2))  # one request: it already kills the script
+        self.assertEqual(len(stops), 1)
         self.assertIn("stopping everything", self.tab.status.cget("text"))
         self.app.runner.kill()
         self.pump(lambda: not self.app.runner.running, 10)
@@ -291,7 +292,6 @@ class RunTab(unittest.TestCase):
         self.tab.utility = "doctor"
         self.tab.doctor_summary = None
         self.tab._set_running("Running doctor...")
-        self.assertEqual(self.tab.stop_button.cget("text"), "Stop")  # the doctor has nothing to land
         self.tab._start(fake)
         self.assertTrue(self.pump(lambda: not self.app.runner.running and "finished" in self.text()))
         self.assertEqual(self.tab.status.cget("text"), "Doctor: 1 of 2 checks failed. See the red lines in the output")
@@ -314,21 +314,24 @@ class RunTab(unittest.TestCase):
         self.assertTrue(self.pump(lambda: "exit code 7" in self.text()))
         self.assertIn("code 7", self.tab.status.cget("text"))
 
-    def test_stop_button_asks_the_process_to_stop(self):
+    def test_one_press_of_stop_asks_the_process_to_stop(self):
         child = (
             "import os, sys, time; p = os.path.join(os.environ['MRRSIM_DATA_DIR'], 'stop.request'); print('up', flush=True)\n"
             "while not os.path.exists(p): time.sleep(0.05)\n"
-            "print('landing', flush=True); sys.exit(130)"
+            "print('stopping', flush=True); sys.exit(130)"
         )
         self.tab.utility = None
         self.tab._set_running("Starting...")
+        self.assertEqual(self.tab.stop_button.cget("text"), "Stop")
         self.tab._start([sys.executable, "-c", child])
         self.assertTrue(self.pump(lambda: "up" in self.text()))
         self.assertNotIn("disabled", self.tab.stop_button.state())
-        self.tab.stop()
-        self.assertIn("landing the vehicle", self.tab.status.cget("text"))
+        with mock.patch.object(self.app.runner, "request_stop", wraps=self.app.runner.request_stop) as request:
+            self.tab.stop()
+        request.assert_called_once()
+        self.assertEqual((self.tab.status.cget("text"), self.tab.stop_button.cget("text")), ("Stopping...", "Stop"))
         self.assertTrue(self.pump(lambda: not self.app.runner.running and "finished" in self.text()))
-        self.assertIn("landing", self.text())
+        self.assertIn("stopping", self.text())
         self.assertEqual(self.tab.status.cget("text"), "Stopped")
 
     def test_stop_ends_a_doctor_run_too(self):
@@ -354,6 +357,50 @@ class RunTab(unittest.TestCase):
                 self.tab.run()
             start.assert_not_called()
             self.assertIn("Vehicles must be a number", error.call_args.args[1], value)
+
+    def iarc_project(self):
+        """A project folder like IARC-10: a run.py and a mission_config.json with drones 1-4. Returns its run.py's info."""
+        folder = Path(self._tmp.name) / "IARC-10"
+        folder.mkdir()
+        (folder / "run.py").write_text("print('flying')\n", encoding="utf-8")
+        info = [{"id": n, "IP": f"127.0.0.{n}", "port": 5000 + n} for n in (1, 2, 3, 4)]
+        (folder / "mission_config.json").write_text(json.dumps({"drone_info": info}), encoding="utf-8")
+        return scripts.ScriptInfo("run.py", folder / "run.py", scripts.PROJECT, project=folder)
+
+    def test_run_iarc_flies_the_iarc_drone_at_the_drones_ips_whatever_the_vehicle_and_arguments_say(self):
+        info = self.iarc_project()
+        self.tab.vehicles.set(2)
+        self.tab.script_args.set("-s")
+        self.tab.cameras_off.set(True)                     # optional: passed on as for Run
+        started = []
+        with mock.patch.object(self.tab, "selected", return_value=info), \
+                mock.patch.object(self.tab, "_start", side_effect=started.append), \
+                mock.patch.object(run_module, "iarc_ports_problem", return_value=None):
+            self.tab.run_iarc()
+        drones = run_module.iarc_drones(info.project)
+        self.assertEqual(started, [run_module.iarc_command(self.tab.cfg.source, info.path, drones, True,
+                                                           self.tab.resolution.get(), project=info.project)])
+        self.assertIn('in IARC mode: 4 drones of the design "IARC Drone"', self.text())
+        self.assertIn("127.0.0.4:5004", self.text())
+        self.assertIn("IARC Drone", self.tab.library.names())      # the shipped design was copied in
+        self.assertIn("IARC Drone", self.tab.design_combo.cget("values"))
+        self.assertIn("disabled", self.tab.iarc_button.state())
+        self.tab._set_idle("Ready")
+        self.assertNotIn("disabled", self.tab.iarc_button.state())
+
+    def test_run_iarc_refuses_a_file_outside_a_project_and_a_taken_port(self):
+        self.select("takeoff_land.py")                               # an example: not in a project
+        with mock.patch.object(self.tab, "_start") as start, mock.patch.object(run_module.messagebox, "showerror") as error:
+            self.tab.run_iarc()
+        start.assert_not_called()
+        self.assertIn("project folder", error.call_args.args[1])
+        info = self.iarc_project()
+        with mock.patch.object(self.tab, "selected", return_value=info), mock.patch.object(self.tab, "_start") as start, \
+                mock.patch.object(run_module.messagebox, "showerror") as error, \
+                mock.patch.object(run_module, "iarc_ports_problem", return_value="In use: drone 2 (127.0.0.2:5002)"):
+            self.tab.run_iarc()
+        start.assert_not_called()
+        self.assertIn("drone 2 (127.0.0.2:5002)", error.call_args.args[1])
 
     def test_run_refuses_a_second_start_while_running(self):
         self.tab._set_running("Starting...")

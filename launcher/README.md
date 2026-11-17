@@ -20,7 +20,7 @@ Or install it into a venv: `pip install -e launcher` gives you an `mrrsim` comma
 | `mrrsim images build [sitl\|script\|all]` | build the container images inside WSL (needs network) |
 | `mrrsim images list` | which images exist |
 | `mrrsim images test` | offline smoke test of each image: SITL starts, DroneKit/pymavlink and the Project AirSim client import |
-| `mrrsim gui` | open the window: pick a script, set vehicles / cameras / window size, Run and Stop (installed as `MRRSimulatorGUI.exe`) |
+| `mrrsim gui` | open the window: pick a script, set vehicles / cameras / window size, Run (or Run IARC: the file as IARC-10's flight code, four drones at the Huntsville field) and Stop (installed as `MRRSimulatorGUI.exe`) |
 | `mrrsim scripts` | list your scripts (`Documents\MRRSimulator\scripts`) and the examples |
 | `mrrsim run takeoff_land.py` | run one script (a name from `scripts`, or a path); picks the right image and vehicle count from the file |
 | `mrrsim run flight\mission.py --project C:\code\proj` | run a file of an existing project folder: the whole folder is mounted at `/work` and importable, whatever depth the file is at (the window's **Add project folder...**) |
@@ -28,6 +28,7 @@ Or install it into a venv: `pip install -e launcher` gives you an `mrrsim` comma
 | `mrrsim pip install tqdm` | install Python packages the script images lack into `Documents\MRRSimulator\packages` (needs the internet once; also `pip remove NAME`, `pip list`, `pip reset`) |
 | `mrrsim designs` | list your vehicle designs (made in the Vehicles tab of the window) and the provided vehicle |
 | `mrrsim run script.py --design NAME` | fly a vehicle design instead of the provided vehicle: every vehicle of the run is a copy of it (see VEHICLE_SETTINGS.md) |
+| `mrrsim run script.py --home 34.6251269,-86.8091462` | start somewhere else: the simulator's home point and ArduPilot's for this run (instead of `[sitl] home`; LAT,LON keeps its altitude and heading) |
 | `mrrsim up` | start Unreal, load the scene, start SITL, run the script, shut down |
 | `mrrsim up --vehicles 2 --script takeoff_land_all.py` | 2 vehicles: a scene with one robot per vehicle is generated from the single-vehicle one (`--scene` to use your own; checked in preflight) |
 | `mrrsim up --no-cameras` | load a copy of the scene with every camera sensor disabled (opt-in; never automatic) |

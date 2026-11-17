@@ -84,6 +84,10 @@ class Shared(unittest.TestCase):
         self.assertEqual(texts, ["Run", "Vehicles", "Simulator"])
         self.assertEqual(self.app.tabs.index(self.app.tabs.select()), 0)
 
+    def test_the_shipped_iarc_drone_is_in_both_vehicle_lists_from_the_start(self):
+        self.assertIn("IARC Drone", self.app.library.names())
+        self.assertIn("IARC Drone", self.app.run_tab.design_combo.cget("values"))  # any script may fly it
+
     def test_the_run_tab_starts_ready(self):
         self.assertEqual(self.run_tab.status.cget("text"), "Ready")
 
@@ -146,7 +150,7 @@ class Shared(unittest.TestCase):
         runner = self.fake_run()
         self.close_during_the_run()
         self.poll_now()
-        self.assertTrue(self.app._alive)  # still landing
+        self.assertTrue(self.app._alive)  # the launcher is still shutting down
         runner.running = False
         runner.events.put(("exit", 0))
         self.poll_now()

@@ -80,7 +80,8 @@ class OnTheCommandLine(unittest.TestCase):
     def test_a_broken_quote_is_reported_as_a_settings_error(self):
         cfg = config.load(paths.repo_root() / "config" / "mrrsim.toml")
         args = mock.Mock(
-            script=None, vehicles=1, per_vehicle=False, script_args='--x "oops', resolution=None, fullscreen=False
+            script=None, vehicles=1, per_vehicle=False, copy_env=None, script_args='--x "oops', resolution=None,
+            fullscreen=False
         )
         with self.assertRaises(config.ConfigError):
             cli.cmd_up(cfg, args)

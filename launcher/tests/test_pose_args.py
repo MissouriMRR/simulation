@@ -1,5 +1,6 @@
 """Where the vehicle spawns, chosen with script arguments: --airsim --position X Y Z --rotation ROLL PITCH YAW.
-The launcher takes the options out of the script's arguments, and the scene generator places the vehicles."""
+The launcher takes the options out of the script's arguments, and the scene generator places the vehicles.
+Also --home: the latitude and longitude the simulation starts at."""
 import io
 import json
 import shutil
@@ -239,8 +240,22 @@ class Generator(Base):
     def test_the_original_files_are_never_touched(self):
         before = {p.name: p.read_bytes() for p in self.dir.iterdir()}
         scenegen.generate(self.dir, BASE, 2, pose=Pose((1.0, 1.0, -1.0), (0.0, 0.0, 1.0)))
+        scenegen.generate(self.dir, BASE, 1, home=(34.6, -86.8, 15.0))
         for name, data in before.items():
             self.assertEqual((self.dir / name).read_bytes(), data, name)
+
+    def test_a_home_point_makes_a_generated_scene_with_that_home_and_another_home_another_file(self):
+        home = (34.6251269, -86.8091462, 15.0)
+        name = scenegen.generate(self.dir, BASE, 1, home=home)
+        self.assertIn(scenegen.home_tag(home), name)
+        self.assertEqual(scenecheck.check_scene(self.dir, name, 1), [])
+        point = scenecheck.load_jsonc(self.dir / name)["home-geo-point"]
+        self.assertEqual((point["latitude"], point["longitude"], point["altitude"]), home)
+        self.assertIsNone(scenecheck.home_problem(self.dir, name, "34.6251269,-86.8091462,15,0"))
+        self.assertIn("Home point (--home): 34.6251269, -86.8091462, 15 m", (self.dir / name).read_text(encoding="utf-8")[:900])
+        other = scenegen.generate(self.dir, BASE, 1, home=(1.0, 2.0, 3.0))
+        self.assertNotEqual(name, other)
+        self.assertEqual(scenecheck.load_jsonc(self.dir / name)["home-geo-point"]["latitude"], home[0])  # not overwritten
 
 
 class CommandLine(Base):
@@ -295,6 +310,7 @@ class CommandLine(Base):
 
         def fake_session(cfg, dry_run=False):
             seen["args"], seen["scene"], seen["vehicles"] = list(cfg.scripts.args), cfg.scene.scene, cfg.sitl.vehicles
+            seen["home"], seen["copy_env"] = cfg.sitl.home, dict(cfg.scripts.copy_env)
             return mock.Mock(up=mock.Mock(return_value=0))
 
         out = io.StringIO()
@@ -334,6 +350,52 @@ class CommandLine(Base):
         code, seen, said = self.run_cli("--airsim --vehicle-pose 1=9,9,-1,0,0,0", extra=("--vehicles", "2"))
         self.assertEqual(code, 0)
         self.assertIn("vehicle 1 placed at 9 9 -1", said)
+
+    def test_home_moves_ardupilot_and_the_scene_and_keeps_the_configured_altitude_and_heading(self):
+        _lat, _lon, alt, heading = self.cfg.sitl.home.split(",")
+        code, seen, said = self.run_cli("--airsim", extra=("--home", "34.6251269,-86.8091462"))
+        self.assertEqual(code, 0)
+        self.assertEqual(seen["home"], f"34.6251269,-86.8091462,{alt},{heading}")
+        self.assertIsNone(scenecheck.home_problem(self.dir, seen["scene"], seen["home"]))   # the scene and ArduPilot agree
+        self.assertIn("(--home)", said)
+        code, seen, _ = self.run_cli("--airsim", extra=("--home", "1.5,2.5,30,90"))
+        self.assertEqual((code, seen["home"]), (0, "1.5,2.5,30,90"))
+
+    def test_copy_env_gives_each_copy_its_own_value_and_needs_one_per_vehicle_and_per_vehicle(self):
+        code, seen, said = self.run_cli("--airsim", extra=("--vehicles", "2", "--per-vehicle",
+                                                           "--copy-env", "SITL_MAVLINK_HOST=127.0.0.1,127.0.0.2"))
+        self.assertEqual((code, seen["copy_env"]), (0, {"SITL_MAVLINK_HOST": ["127.0.0.1", "127.0.0.2"]}))
+        self.assertIn("each copy gets its own SITL_MAVLINK_HOST", said)
+        for extra, why in ((("--vehicles", "2", "--copy-env", "A=1,2"), "needs --per-vehicle"),
+                           (("--vehicles", "2", "--per-vehicle", "--copy-env", "A=1,2,3"), "3 value(s) for 2 vehicle(s)"),
+                           (("--vehicles", "2", "--per-vehicle", "--copy-env", "1A=1,2"), "NAME=V1,V2")):
+            self.cfg.scripts.per_vehicle, self.cfg.scripts.copy_env = False, {}  # each real run loads fresh settings
+            err = io.StringIO()
+            with mock.patch("sys.stderr", err):
+                code, seen, _ = self.run_cli("--airsim", extra=extra)
+            self.assertNotEqual(code, 0, extra)
+            self.assertEqual(seen, {}, extra)
+            self.assertIn(why, err.getvalue(), extra)
+
+    def test_a_bad_home_is_refused_and_says_why(self):
+        for value, why in (("34.6", "LAT,LON"), ("34.6,x", "LAT,LON"), ("1,2,3", "LAT,LON"), ("95,10", "-90 to 90"),
+                           ("10,200", "-180 to 180"), ("10,20,inf,0", "finite")):
+            err = io.StringIO()
+            with mock.patch("sys.stderr", err):
+                code, seen, _ = self.run_cli("--airsim", extra=(f"--home={value}",))
+            self.assertNotEqual(code, 0, value)
+            self.assertEqual(seen, {}, value)                         # no session was created
+            self.assertIn(why, err.getvalue(), value)
+
+    def test_home_cannot_be_combined_with_your_own_scene_and_moves_only_ardupilot_without_a_scene(self):
+        with self.assertRaises(config.ConfigError) as caught:
+            cli._prepare_scene(self.cfg, self.args(scene=BASE), None, (1.0, 2.0, 3.0))
+        self.assertIn("--scene", str(caught.exception))
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cli._prepare_scene(self.cfg, self.args(no_scene=True), None, (1.0, 2.0, 3.0))
+        self.assertIn("only ArduPilot's home", out.getvalue())
+        self.assertEqual(self.cfg.scene.scene, BASE)
 
 
 if __name__ == "__main__":
