@@ -122,9 +122,13 @@ def iarc_ports_problem(drones: list[Drone]) -> str | None:
             f"In use: {taken}.\nClose that program (or end the earlier run) and try again.")
 
 
-def doctor_command(config_file: Path) -> list[str]:
-    """The command of the Run doctor button."""
-    return _launcher(config_file, "doctor")
+def doctor_command(config_file: Path, script: Path | None = None, project: Path | None = None) -> list[str]:
+    """The command of the Run doctor button; with the selected `script` (and its `project`), doctor checks that one,
+    its imports included."""
+    extra = ["--script", str(script)] if script else []
+    if script and project:
+        extra += ["--project", str(project)]
+    return _launcher(config_file, "doctor", *extra)
 
 
 def pip_command(config_file: Path, removing: bool, names: list[str]) -> list[str]:

@@ -500,6 +500,8 @@ def cmd_status(cfg: config.Config, args: argparse.Namespace) -> int:
 def cmd_doctor(cfg: config.Config, args: argparse.Namespace) -> int:
     """`mrrsim doctor`: check this machine and the project files, print the
     report, and return 1 if any check failed."""
+    if args.script:  # check this script (and its imports) instead of [scripts] main
+        _override_script(cfg, args.script, args.project)
     checks = doctor.run_checks(cfg)
     print(doctor.format_report(checks))
     return 1 if any(c.status == doctor.FAIL for c in checks) else 0
@@ -960,6 +962,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor_cmd = sub.add_parser(
         "doctor", help="check this machine and the project files"
+    )
+    doctor_cmd.add_argument(
+        "--script",
+        help="check this script (a name from `mrrsim scripts`, or a path) "
+        "instead of [scripts] main: that it exists and that its imports "
+        "work in its image",
+    )
+    doctor_cmd.add_argument(
+        "--project",
+        metavar="DIR",
+        help="with --script: the script is part of this project folder",
     )
     doctor_cmd.add_argument(
         "--stop-file", help=argparse.SUPPRESS

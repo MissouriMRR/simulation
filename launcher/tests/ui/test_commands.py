@@ -43,6 +43,9 @@ class RunCommand(unittest.TestCase):
         self.assertEqual(commands.pip_command(Path("c.toml"), False, ["tqdm", "pyzbar"]),
                          ["mrrsim", "-c", "c.toml", "pip", "install", "tqdm", "pyzbar", "--stop-file", self.stop])
         self.assertEqual(commands.pip_command(Path("c.toml"), True, ["numpy"])[3:5], ["pip", "remove"])
+        self.assertEqual(commands.doctor_command(Path("c.toml"), Path("p/run.py"), Path("p")),
+                         ["mrrsim", "-c", "c.toml", "doctor", "--script", str(Path("p/run.py")), "--project", "p",
+                          "--stop-file", self.stop])                    # the selected script, its imports checked too
 
     def test_the_launcher_accepts_every_command_the_window_builds(self):
         parser = cli.build_parser()
@@ -50,7 +53,8 @@ class RunCommand(unittest.TestCase):
                                                    script_args="-s", design="Quad"),
                         commands.doctor_command(Path("c.toml")), commands.pip_command(Path("c.toml"), False, ["tqdm"]),
                         commands.pip_command(Path("c.toml"), True, ["tqdm"]),
-                        commands.iarc_command(Path("c.toml"), Path("run.py"), DRONES, False, None, project=Path("p"))):
+                        commands.iarc_command(Path("c.toml"), Path("run.py"), DRONES, False, None, project=Path("p")),
+                        commands.doctor_command(Path("c.toml"), Path("p/run.py"), Path("p"))):
             args = parser.parse_args(command[1:])
             self.assertEqual(args.stop_file, self.stop, command)
 

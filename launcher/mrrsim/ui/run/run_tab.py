@@ -436,14 +436,15 @@ class RunTab(ttk.Frame):
 
     # ------------------------------------------------------------------------------------ utilities
     def check(self) -> None:
-        """The Run doctor button: check this computer and the project files."""
+        """The Run doctor button: check this computer and the project files, and the selected script's imports."""
         if self.runner.running:
             return
-        self.app.note("--- running doctor ---")
+        info = self.selected()
+        self.app.note("--- running doctor" + (f" for {info.name}" if info else "") + " ---")
         self.utility = "doctor"
         self.doctor_summary = None
         self._set_running("Running doctor...")
-        self._start(doctor_command(self.cfg.source))
+        self._start(doctor_command(self.cfg.source, info.path if info else None, info.project if info else None))
 
     def install_package(self) -> None:
         """Ask for package names, then run `mrrsim pip install` (or `remove`) like the doctor: output below, no simulation."""

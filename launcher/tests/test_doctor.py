@@ -513,6 +513,80 @@ class SceneAndScript(Folder):
         self.assertEqual((result.status, result.detail), (OK, str(self.tmp / "fly.py")))
 
 
+class ScriptImports(Folder):
+    SCRIPT = (
+        "from __future__ import annotations\n"
+        "import argparse, logging\n"
+        "from state_machine.flight_manager import FlightManager\n"
+        "from .local import thing\n"                                   # relative: not how a script is run
+        "try:\n    import optional_thing\nexcept ImportError:\n    optional_thing = None\n"
+        "def main():\n    import inside\n"
+        "if __name__ == '__main__':\n    import also_inside\n"
+    )
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "sub").mkdir()
+        (self.tmp / "sub" / "run.py").write_text(self.SCRIPT, encoding="utf-8")
+        self.cfg.scripts.dir, self.cfg.scripts.main = self.tmp, "sub/run.py"
+
+    def test_only_the_top_level_imports_run_from_the_scripts_own_folder(self):
+        program = doctor.import_program(self.tmp / "sub" / "run.py", "sub/run.py").splitlines()
+        self.assertEqual(program, ["import sys; sys.path.insert(0, '/work/sub')", "import argparse, logging",
+                                   "from state_machine.flight_manager import FlightManager", "print('imports work')"])
+        (self.tmp / "plain.py").write_text("print(1)\n", encoding="utf-8")
+        self.assertIsNone(doctor.import_program(self.tmp / "plain.py", "plain.py"))
+
+    def run_check(self, returncode, stderr="", dry_run=False):
+        podman = mock.Mock(dry_run=dry_run)
+        podman.run.return_value = SimpleNamespace(returncode=returncode, stdout="", stderr=stderr)
+        with mock.patch.object(doctor.wsl, "to_wsl_path", side_effect=lambda p, d: "/mnt/x"), \
+                mock.patch.object(doctor.pipinstall, "has_packages", return_value=False):
+            (result,) = doctor._script_imports(self.cfg, podman)
+        return result, podman
+
+    def test_the_imports_are_tried_in_the_scripts_image_with_its_folder_read_only_and_no_network(self):
+        result, podman = self.run_check(0)
+        self.assertEqual(result.status, OK)
+        args = podman.run.call_args.args[0]
+        self.assertEqual(args[args.index("--network") + 1], "none")
+        self.assertIn("/mnt/x:/work:ro", args)
+        self.assertIn(self.cfg.scripts.image, args)
+        self.assertEqual(args[-3:-1], ["python", "-c"])
+
+    def test_a_missing_module_fails_naming_the_error_and_the_project_file(self):
+        stderr = ('Traceback (most recent call last):\n  File "<string>", line 3, in <module>\n'
+                  '  File "/work/state_machine/__init__.py", line 3, in <module>\n'
+                  '  File "/work/state_machine/drone.py", line 23, in <module>\n'
+                  "ModuleNotFoundError: No module named 'flight.pathfinding.utils'\n")
+        result, _ = self.run_check(1, stderr)
+        self.assertEqual(result.status, FAIL)
+        self.assertEqual(result.detail, "sub/run.py: ModuleNotFoundError: No module named 'flight.pathfinding.utils' "
+                                        "(state_machine/drone.py line 23)")
+
+    def test_a_dry_run_does_not_claim_the_imports_work(self):
+        result, podman = self.run_check(0, dry_run=True)
+        self.assertEqual((result.status, result.detail), (OK, "not tried (dry run)"))
+        podman.run.assert_not_called()
+
+    def test_nothing_to_try_without_a_script(self):
+        self.cfg.scripts.main = "gone.py"
+        self.assertEqual(doctor._script_imports(self.cfg, mock.Mock()), [])
+
+    def test_it_runs_only_when_the_script_image_is_there(self):
+        stand_ins = dict(_windows=Check("Windows", OK, ""), _ram=Check("RAM", OK, ""), _gpu=Check("GPU", OK, ""),
+                         _disk=Check("Disk", OK, ""), _wsl=([Check("WSL distro", OK, "")], True),
+                         _unreal=[Check("Unreal build", OK, "")], _scene=[Check("scene", OK, "")],
+                         _script=[Check("script", OK, "")], _ports=Check("ports", OK, ""),
+                         _script_imports=[Check("script imports", OK, "")])
+        for image, expected in ((Check("script image", OK, ""), True), (Check("script image", FAIL, ""), False)):
+            stand_ins["_podman"] = [Check("podman", OK, ""), image]
+            mocks = {name: mock.Mock(return_value=value) for name, value in stand_ins.items()}
+            with mock.patch.multiple(doctor, **mocks), mock.patch.object(doctor, "Podman"):
+                names = [c.name for c in doctor.run_checks(self.cfg)]
+            self.assertEqual("script imports" in names, expected)
+
+
 class Ports(Folder):
     def check(self, busy=(), who=None, unreal=True, vehicles=1):
         self.cfg.sitl.vehicles = vehicles

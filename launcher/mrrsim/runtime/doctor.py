@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import os
 import platform
 import re
 import shutil
@@ -9,12 +11,14 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 from ..core import paths, ports
 from ..core.config import Config
 from ..scene import scenecheck
+from ..userscripts import pipinstall
 from . import wsl
-from .podman import Podman, PodmanError
+from .podman import Mount, Podman, PodmanError, run_args
 from .winproc import IS_WINDOWS, total_ram_gb
 
 # === CONSTANTS ================================================================
@@ -556,6 +560,64 @@ def _script(cfg: Config) -> list[Check]:
     ]
 
 
+def import_program(script: Path, main: str) -> str | None:
+    """A program that runs only the script's top-level import statements (not code in functions, `if` or `try`), from
+    the script's own folder in /work as Python would; None when it imports nothing. Its imports load the modules they
+    name, the project's own included, so a module the checkout lacks fails here as it would in the run."""
+    tree = ast.parse(script.read_text(encoding="utf-8-sig"))
+    lines = [ast.unparse(node) for node in tree.body
+             if isinstance(node, ast.Import)
+             or (isinstance(node, ast.ImportFrom) and node.level == 0 and node.module != "__future__")]
+    if not lines:
+        return None
+    folder = str(PurePosixPath("/work", main.replace("\\", "/")).parent)
+    return "\n".join([f"import sys; sys.path.insert(0, {folder!r})", *lines, "print('imports work')"])
+
+
+def _import_failure(output: str) -> str:
+    """The error of a failed import check, and the project file it happened in: "ModuleNotFoundError: No module named
+    'x' (state_machine/drone.py line 23)"."""
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    error = lines[-1] if lines else "it failed without saying why"
+    where = re.findall(r'File "/work/([^"]+)", line (\d+)', output)
+    return f"{error} ({where[-1][0]} line {where[-1][1]})" if where else error
+
+
+def _script_imports(cfg: Config, podman: Podman) -> list[Check]:
+    """The script's imports, tried in its image with its folder at /work (and the packages `mrrsim pip install` added),
+    before anything starts: a checkout that lacks a module the script needs then fails in seconds, not after Unreal and
+    SITL have started."""
+    path = cfg.scripts.dir / cfg.scripts.main
+    if not cfg.scripts.main or not path.is_file():
+        return []  # the script check says so
+    try:
+        program = import_program(path, cfg.scripts.main)
+    except (OSError, SyntaxError, ValueError) as exc:
+        return [Check("script imports", FAIL, f"{cfg.scripts.main} cannot be read: {exc}")]
+    if program is None:
+        return [Check("script imports", OK, f"{cfg.scripts.main} imports nothing")]
+    if podman.dry_run:  # nothing is started in a dry run, this container neither
+        return [Check("script imports", OK, "not tried (dry run)")]
+    from .session import SCRIPT_LIB  # (session imports this module)
+
+    mounts = [Mount(wsl.to_wsl_path(cfg.scripts.dir, cfg.wsl.distro), "/work", "ro")]
+    pythonpath = "/work:" + SCRIPT_LIB
+    if pipinstall.has_packages():
+        mounts.append(Mount(wsl.to_wsl_path(paths.packages_dir(), cfg.wsl.distro), "/packages", "ro"))
+        pythonpath = "/work:/packages:" + SCRIPT_LIB
+    args = run_args(cfg.scripts.image, name=f"mrrsim-import-check-{os.getpid()}", command=["python", "-c", program],
+                    env={"PYTHONPATH": pythonpath, "PYTHONDONTWRITEBYTECODE": "1"}, mounts=mounts, network="none")
+    try:
+        result = podman.run(args, timeout=180, check=False)
+    except PodmanError as exc:
+        return [Check("script imports", FAIL, f"WSL did not answer ({exc})", NO_ANSWER_HINT)]
+    if result.returncode == 0:
+        return [Check("script imports", OK, f"every import of {cfg.scripts.main} works in {cfg.scripts.image}")]
+    return [Check("script imports", FAIL, f"{cfg.scripts.main}: {_import_failure(result.stderr + result.stdout)}",
+                  "the script's folder lacks a module it imports, or an import fails: fix that code, or check out a "
+                  "branch where it is complete")]
+
+
 def _ports(cfg: Config, unreal: bool) -> Check:
     """Whether the ports that Unreal and the vehicles need are free, and who
     uses them if not."""
@@ -632,6 +694,8 @@ def run_checks(
         checks += _scene(cfg)
     if script:
         checks += _script(cfg)
+        if any(c.name == "script image" and c.status == OK for c in checks):  # WSL answered and the image is built
+            checks += _script_imports(cfg, podman)
     checks.append(_ports(cfg, unreal))
     return checks
 
