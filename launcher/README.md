@@ -20,7 +20,7 @@ Or install it into a venv: `pip install -e launcher` gives you an `mrrsim` comma
 | `mrrsim images build [sitl\|script\|all]` | build the container images inside WSL (needs network) |
 | `mrrsim images list` | which images exist |
 | `mrrsim images test` | offline smoke test of each image: SITL starts, DroneKit/pymavlink and the Project AirSim client import |
-| `mrrsim gui` | open the window: pick a script, set vehicles / cameras / window size, Run (or Run IARC: the file as IARC-10's flight code, four drones at the Huntsville field) and Stop (installed as `MRRSimulatorGUI.exe`) |
+| `mrrsim gui` | open the window: pick a script, set vehicles / cameras / window size, Run (or Run IARC: the file as IARC-10's flight code, one drone per `drones_in_mission` entry of its `mission_config.json`, at the Huntsville field) and Stop (installed as `MRRSimulatorGUI.exe`) |
 | `mrrsim scripts` | list your scripts (`Documents\MRRSimulator\scripts`) and the examples |
 | `mrrsim run takeoff_land.py` | run one script (a name from `scripts`, or a path); picks the right image and vehicle count from the file |
 | `mrrsim run flight\mission.py --project C:\code\proj` | run a file of an existing project folder: the whole folder is mounted at `/work` and importable, whatever depth the file is at (the window's **Add project folder...**) |

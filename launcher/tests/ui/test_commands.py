@@ -73,34 +73,52 @@ class IarcMode(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    def test_four_iarc_drones_one_copy_each_fly_the_mission_from_huntsville_at_their_own_ips(self):
+    def test_four_iarc_drones_one_copy_each_take_off_from_huntsville_at_their_own_ips(self):
         command = commands.iarc_command(Path("c.toml"), Path("p/run.py"), DRONES, True, "960x540", project=Path("p"))
         args = cli.build_parser().parse_args(command[1:])
         self.assertEqual((args.vehicles, args.per_vehicle, args.home, args.design, args.resolution, args.no_cameras),
                          (4, True, "34.6251269,-86.8091462", "IARC Drone", "960x540", True))
         self.assertEqual(args.project, str(Path("p")))
         self.assertEqual(args.copy_env, ["SITL_MAVLINK_HOST=127.0.0.1,127.0.0.2,127.0.0.3,127.0.0.4"])
-        kept, pose = poseargs.extract(scripts.split_args(args.script_args), commands.IARC_VEHICLES)
-        self.assertEqual(kept, ["--airsim", "--auto-start", "mission"])            # what run.py gets (and -i N)
+        kept, pose = poseargs.extract(scripts.split_args(args.script_args), 4)
+        self.assertEqual(kept, ["--airsim", "--auto-start", "takeoff"])            # what run.py gets (and -i N)
         self.assertEqual([pose.vehicles[i] for i in range(4)],                      # a north-south line, facing north
                          [(5.0 * i, 0.0, commands.IARC_SPAWN_Z, 0.0, 0.0, 0.0) for i in range(4)])
+
+    def test_the_count_follows_the_drones_given(self):
+        for count in (1, 2, 6):
+            drones = [(n, f"127.0.0.{n}", 5000 + n) for n in range(1, count + 1)]
+            command = commands.iarc_command(Path("c.toml"), Path("p/run.py"), drones, False, None, project=Path("p"))
+            args = cli.build_parser().parse_args(command[1:])
+            self.assertEqual(args.vehicles, count)
+            self.assertEqual(args.copy_env, ["SITL_MAVLINK_HOST=" + ",".join(ip for _n, ip, _p in drones)])
+            _kept, pose = poseargs.extract(scripts.split_args(args.script_args), count)
+            self.assertEqual(sorted(pose.vehicles), list(range(count)))
+            self.assertEqual(pose.vehicles[count - 1][0], 5.0 * (count - 1))
 
     def test_the_drones_spawn_at_the_height_of_the_provided_scene(self):
         scene = scenecheck.load_jsonc(paths.repo_root() / "sim_config" / "scene_ardupilot_quadrotor.jsonc")
         robot = next(a for a in scene["actors"] if a.get("type") == "robot")
         self.assertEqual(float(robot["origin"]["xyz"].split()[2]), commands.IARC_SPAWN_Z)
 
-    def write_config(self, folder: Path, drone_info) -> None:
-        (folder / commands.IARC_CONFIG).write_text(json.dumps({"self_id": 1, "drone_info": drone_info}), encoding="utf-8")
+    def write_config(self, folder: Path, mission, drone_info) -> None:
+        doc = {"self_id": 1, "drones_in_mission": mission, "drone_info": drone_info}
+        (folder / commands.IARC_CONFIG).write_text(json.dumps(doc), encoding="utf-8")
 
-    def test_the_drones_are_read_from_the_projects_mission_config(self):
+    def test_the_drones_are_those_of_drones_in_mission(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
-            info = [{"id": n, "IP": f"10.0.0.{n}", "port": 6000 + n} for n in (4, 3, 2, 1, 5)]   # any order, extras ignored
-            self.write_config(folder, info)
-            self.assertEqual(commands.iarc_drones(folder), [(n, f"10.0.0.{n}", 6000 + n) for n in (1, 2, 3, 4)])
-            self.write_config(folder, info[1:4])                                                 # no drone 4
-            with self.assertRaisesRegex(ValueError, "no drone 4"):
+            info = [{"id": n, "IP": f"10.0.0.{n}", "port": 6000 + n} for n in (4, 3, 2, 1, 5)]   # any order
+            for mission in ([1], [1, 2, 3, 4], [3, 1, 2]):                                      # extras in drone_info ignored
+                self.write_config(folder, mission, info)
+                self.assertEqual(commands.iarc_drones(folder),
+                                 [(n, f"10.0.0.{n}", 6000 + n) for n in sorted(mission)])
+            for mission, why in (([1, 3], "must be 1..n"), ([], "must be 1..n"), ([1, 2, 3, 4, 5, 6], "drone 6")):
+                self.write_config(folder, mission, info)
+                with self.assertRaisesRegex(ValueError, why):
+                    commands.iarc_drones(folder)
+            (folder / commands.IARC_CONFIG).write_text(json.dumps({"drone_info": info}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Could not read the drones"):              # no drones_in_mission
                 commands.iarc_drones(folder)
             (folder / commands.IARC_CONFIG).write_text("{not json", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "Could not read the drones"):

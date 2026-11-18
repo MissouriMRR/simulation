@@ -358,14 +358,26 @@ class RunTab(unittest.TestCase):
             start.assert_not_called()
             self.assertIn("Vehicles must be a number", error.call_args.args[1], value)
 
-    def iarc_project(self):
-        """A project folder like IARC-10: a run.py and a mission_config.json with drones 1-4. Returns its run.py's info."""
+    def iarc_project(self, mission=(1, 2, 3, 4)):
+        """A project folder like IARC-10: a run.py and a mission_config.json flying `mission`. Returns run.py's info."""
         folder = Path(self._tmp.name) / "IARC-10"
         folder.mkdir()
         (folder / "run.py").write_text("print('flying')\n", encoding="utf-8")
         info = [{"id": n, "IP": f"127.0.0.{n}", "port": 5000 + n} for n in (1, 2, 3, 4)]
-        (folder / "mission_config.json").write_text(json.dumps({"drone_info": info}), encoding="utf-8")
+        doc = {"drones_in_mission": list(mission), "drone_info": info}
+        (folder / "mission_config.json").write_text(json.dumps(doc), encoding="utf-8")
         return scripts.ScriptInfo("run.py", folder / "run.py", scripts.PROJECT, project=folder)
+
+    def test_run_iarc_starts_one_drone_per_drone_in_the_mission(self):
+        info = self.iarc_project(mission=(1, 2))
+        started = []
+        with mock.patch.object(self.tab, "selected", return_value=info), \
+                mock.patch.object(self.tab, "_start", side_effect=started.append), \
+                mock.patch.object(run_module, "iarc_ports_problem", return_value=None):
+            self.tab.run_iarc()
+        self.assertEqual(started[0][started[0].index("--vehicles") + 1], "2")
+        self.assertIn("in IARC mode: 2 drone(s)", self.text())
+        self.tab._set_idle("Ready")
 
     def test_run_iarc_flies_the_iarc_drone_at_the_drones_ips_whatever_the_vehicle_and_arguments_say(self):
         info = self.iarc_project()
@@ -380,7 +392,7 @@ class RunTab(unittest.TestCase):
         drones = run_module.iarc_drones(info.project)
         self.assertEqual(started, [run_module.iarc_command(self.tab.cfg.source, info.path, drones, True,
                                                            self.tab.resolution.get(), project=info.project)])
-        self.assertIn('in IARC mode: 4 drones of the design "IARC Drone"', self.text())
+        self.assertIn('in IARC mode: 4 drone(s) of the design "IARC Drone"', self.text())
         self.assertIn("127.0.0.4:5004", self.text())
         self.assertIn("IARC Drone", self.tab.library.names())      # the shipped design was copied in
         self.assertIn("IARC Drone", self.tab.design_combo.cget("values"))

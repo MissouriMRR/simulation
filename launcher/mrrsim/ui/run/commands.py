@@ -16,20 +16,18 @@ STOPPED = 130  # the launcher's exit code after Ctrl+C or the Stop button
 # IARC mode (the Run IARC button): the selected file run as IARC-10's flight code (its run.py). That code flies ONE
 # drone per copy, so the launcher starts one copy per vehicle, copy N with -i N (--per-vehicle, see
 # containers/script/mrrsim_fleet.py). The values come from IARC-10:
+# - the drones are those of drones_in_mission in the project's mission_config.json;
 # - each drone has its own IP and TCP port in the project's mission_config.json (drone_info): the drones talk to each
 #   other on them, and each copy reaches its own SITL at its IP (IARC reads that host from SITL_MAVLINK_HOST);
 # - its field is in Huntsville (mission_config.json, mission_field_corners): IARC_HOME is the middle of the start edge,
 #   between corners 1 and 2;
 # - its drones stand on a north-south line (state_machine/states/impl/poif_impl.py, ENTRY_BEARING_DEG): drone 1 at the
 #   home point, the others IARC_SPACING_M apart to the north (+x), facing north.
-IARC_VEHICLES = 4
 IARC_CONFIG = "mission_config.json"  # in the project folder: the file run.py reads when it is not given --config
 IARC_DESIGN = "IARC Drone"  # the vehicle (sim_config/designs; its camera stream is off until turned on in Vehicles)
 IARC_HOME = "34.6251269,-86.8091462"
 IARC_SPACING_M = 5.0
 IARC_SPAWN_Z = -15.0  # the provided scene's spawn height (sim_config/scene_ardupilot_quadrotor.jsonc, NED: up is -z)
-IARC_ARGS = "--airsim --auto-start mission " + " ".join(
-    f"--vehicle-pose {i}={IARC_SPACING_M * i:g},0,{IARC_SPAWN_Z:g},0,0,0" for i in range(IARC_VEHICLES))
 
 # a fragment of a launcher log line -> what to tell the student (test_commands.py checks the launcher still logs each)
 PROGRESS = [
@@ -81,29 +79,42 @@ Drone = tuple[int, str, int]  # a drone of mission_config.json: its id, IP and T
 
 
 def iarc_drones(project: Path | None) -> list[Drone]:
-    """Drones 1 .. IARC_VEHICLES of the project's mission_config.json (drone_info). ValueError says what is wrong."""
+    """The drones of drones_in_mission in the project's mission_config.json, with their drone_info IP and port, by id."""
     if project is None:
         raise ValueError("Run IARC runs a file of a project folder: add the IARC-10 folder (Add project folder...) and "
                          "pick its run.py.")
     path = project / IARC_CONFIG
     try:
-        listed = {int(d["id"]): (str(d["IP"]), int(d["port"]))
-                  for d in json.loads(path.read_text(encoding="utf-8-sig"))["drone_info"]}
+        doc = json.loads(path.read_text(encoding="utf-8-sig"))
+        mission = sorted(int(n) for n in doc["drones_in_mission"])
+        listed = {int(d["id"]): (str(d["IP"]), int(d["port"])) for d in doc["drone_info"]}
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise ValueError(f"Could not read the drones (drone_info) of {path}:\n{exc}") from None
-    missing = [n for n in range(1, IARC_VEHICLES + 1) if n not in listed]
+        raise ValueError(f"Could not read the drones (drones_in_mission, drone_info) of {path}:\n{exc}") from None
+    if not mission or mission != list(range(1, len(mission) + 1)):
+        raise ValueError(f"{path}: drones_in_mission must be 1..n, as IARC-10 requires (it is {mission}).")
+    if len(mission) > MAX_VEHICLES:
+        raise ValueError(f"{path}: {len(mission)} drones in drones_in_mission; the simulator runs at most "
+                         f"{MAX_VEHICLES}.")
+    missing = [n for n in mission if n not in listed]
     if missing:
-        raise ValueError(f"{path} has no drone {', '.join(map(str, missing))} in drone_info; IARC mode flies drones "
-                         f"1 to {IARC_VEHICLES}.")
-    return [(n, *listed[n]) for n in range(1, IARC_VEHICLES + 1)]
+        raise ValueError(f"{path}: drone {', '.join(map(str, missing))} of drones_in_mission has no IP and port in "
+                         "drone_info.")
+    return [(n, *listed[n]) for n in mission]
+
+
+def iarc_args(count: int) -> str:
+    """run.py's arguments for `count` drones: takeoff (not "mission" while IARC-10's planner is being rebuilt), and the
+    launcher's spawn poses, a north-south line."""
+    return "--airsim --auto-start takeoff " + " ".join(
+        f"--vehicle-pose {i}={IARC_SPACING_M * i:g},0,{IARC_SPAWN_Z:g},0,0,0" for i in range(count))
 
 
 def iarc_command(config_file: Path, script: Path, drones: list[Drone], cameras_off: bool, resolution: str | None,
                  project: Path | None = None) -> list[str]:
     """The command of the Run IARC button: `script` as IARC-10's flight code, one copy per drone, flying the IARC Drone
-    with IARC_ARGS from IARC_HOME; copy N reaches its SITL at drone N's IP."""
-    return build_run_command(config_file, script, IARC_VEHICLES, cameras_off, resolution, project=project,
-                             script_args=IARC_ARGS, design=IARC_DESIGN, per_vehicle=True, home=IARC_HOME,
+    from IARC_HOME; copy N reaches its SITL at drone N's IP."""
+    return build_run_command(config_file, script, len(drones), cameras_off, resolution, project=project,
+                             script_args=iarc_args(len(drones)), design=IARC_DESIGN, per_vehicle=True, home=IARC_HOME,
                              copy_env={"SITL_MAVLINK_HOST": [ip for _number, ip, _port in drones]})
 
 

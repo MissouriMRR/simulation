@@ -1,4 +1,4 @@
-"""The Run tab: pick a script, press Run (or Run IARC: the file as IARC-10's flight code, four drones; see commands.py).
+"""The Run tab: pick a script, press Run (or Run IARC: the file as IARC-10's flight code; see commands.py).
 
 The tab starts the command-line launcher through the shared `Runner` (see ui/common/launcher_process.py) and receives its
 output line by line from the window (`handle_line`, `handle_exit`). Where the output and the values are shown, and the
@@ -22,7 +22,6 @@ from ..simulator import embed
 from .commands import (
     DOCTOR_SUMMARY,
     IARC_DESIGN,
-    IARC_VEHICLES,
     MAX_VEHICLES,
     PROGRESS,
     PROVIDED_CHOICE,
@@ -366,8 +365,8 @@ class RunTab(ttk.Frame):
                      + (f" of the design \"{design}\"" if design else "") + " ---")
 
     def run_iarc(self) -> None:
-        """The Run IARC button: the selected file as IARC-10's flight code, flying the mission with IARC_VEHICLES IARC
-        Drones at the Huntsville field, each copy at its drone's IP from mission_config.json (see commands.py). The
+        """The Run IARC button: the selected file as IARC-10's flight code, one IARC Drone per drone of drones_in_mission
+        at the Huntsville field, each copy at its drone's IP from mission_config.json (see commands.py). The
         Vehicles box, the vehicle choice and the script arguments are not used; the cameras-off box is."""
         info = self.selected()
         if self.runner.running or info is None:
@@ -390,7 +389,7 @@ class RunTab(ttk.Frame):
             return
         command = iarc_command(self.cfg.source, info.path, drones, self.cameras_off.get(), size or None,
                                project=info.project)
-        self._launch(command, f"--- running {info.name} in IARC mode: {IARC_VEHICLES} drones of the design "
+        self._launch(command, f"--- running {info.name} in IARC mode: {len(drones)} drone(s) of the design "
                               f"\"{IARC_DESIGN}\", one copy of the file each, at "
                               + ", ".join(f"{ip}:{port}" for _n, ip, port in drones) + " ---")
 
