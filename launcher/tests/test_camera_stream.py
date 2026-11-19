@@ -283,6 +283,18 @@ class Wiring(unittest.TestCase):
         self.assertEqual((sent[0]["camera"], sent[0]["port"], sent[0]["image_type"]), ("DownCamera", 5633, 0))
         self.assertIn("holding", "\n".join(logs.output))
 
+    def test_with_the_free_camera_the_loader_holds_and_listens_on_its_port(self):
+        self.cfg.scene.hold, self.cfg.scene.freecam = False, True
+        sess = session.Session(self.cfg, dry_run=True)
+        started = {}
+        real = sess.podman.run_detached
+        with mock.patch.object(sess.podman, "run_detached", side_effect=lambda i, n, **kw: started.update({n: kw}) or real(i, n, **kw)), \
+                self.assertLogs("mrrsim", level="INFO"):
+            sess._load_scene()
+        command = started[session.SCENE_NAME]["command"]
+        self.assertIn("--hold", command)
+        self.assertEqual(command[command.index("--freecam-port") + 1], str(session.ports.FREECAM_PORT))
+
     def test_no_streams_means_the_loader_is_started_as_before(self):
         sess = session.Session(self.cfg, dry_run=True)
         started = {}

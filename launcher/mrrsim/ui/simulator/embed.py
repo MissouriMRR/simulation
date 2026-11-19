@@ -49,6 +49,15 @@ if IS_WINDOWS:
     user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.EnableWindow.argtypes = [wintypes.HWND, wintypes.BOOL]
+    user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+    user32.GetAsyncKeyState.restype = ctypes.c_short
+    user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+    user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetAncestor.restype = wintypes.HWND
+GA_ROOT = 2
 
 
 def available() -> bool:
@@ -76,6 +85,28 @@ def find_window(exe_name: str) -> int | None:
 
     user32.EnumWindows(WNDENUMPROC(visit), 0)
     return found[0] if found else None
+
+
+def key_down(vk: int) -> bool:
+    """Is this key (a Windows virtual-key code) held right now, whichever window has the keyboard?"""
+    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def cursor_pos() -> tuple[int, int]:
+    point = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(point))
+    return point.x, point.y
+
+
+def set_cursor_pos(x: int, y: int) -> None:
+    user32.SetCursorPos(x, y)
+
+
+def foreground_window() -> int:
+    """The top-level window the user is working in. (Windows can name the embedded simulator itself, a child window
+    once it is moved in, so its top-level ancestor is what is returned.)"""
+    hwnd = user32.GetForegroundWindow()
+    return int(user32.GetAncestor(hwnd, GA_ROOT) or 0) if hwnd else 0
 
 
 def window_rect(hwnd: int) -> tuple[int, int, int, int]:
@@ -109,6 +140,7 @@ class Embedder:
                                  (style & ~FRAME_STYLES) | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
         user32.SetWindowLongPtrW(child_hwnd, GWL_EXSTYLE, ex_style & ~FRAME_EX_STYLES)
         user32.SetParent(child_hwnd, self.parent)
+        user32.EnableWindow(child_hwnd, False)  # display only: Unreal gets no mouse or keyboard (the window reads them)
         self.child = child_hwnd
         self.resize()
 
@@ -129,6 +161,7 @@ class Embedder:
             self.child = None
             return
         style, ex_style, (left, top, width, height) = self._saved
+        user32.EnableWindow(self.child, True)
         user32.ShowWindow(self.child, SW_SHOW)
         user32.SetParent(self.child, None)
         user32.SetWindowLongPtrW(self.child, GWL_STYLE, style)

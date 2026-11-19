@@ -34,6 +34,9 @@ BASE_MONITOR = 5763
 
 MAX_VEHICLES = 100
 
+# UDP: the scene loader takes the free camera's moves here (the Simulator tab sends them)
+FREECAM_PORT = 7300
+
 
 # === A VEHICLE'S PORTS ========================================================
 

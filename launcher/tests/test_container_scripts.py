@@ -19,7 +19,7 @@ class ContainerScriptsOnThisComputer(unittest.TestCase):
         self.assertIn("OK", done.stderr)
 
     def test_the_fleet_runner_and_the_client_fetcher_pass_their_tests(self):
-        self.run_tests("script", "tests.test_fleet", "tests.test_fetch_client")
+        self.run_tests("script", "tests.test_fleet", "tests.test_fetch_client", "tests.test_freecam_server")
 
     def test_the_source_fetcher_passes_the_tests_that_need_no_git(self):
         self.run_tests("sitl", "tests.test_fetch_source_units")

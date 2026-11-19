@@ -427,14 +427,16 @@ class Session:
             _fmt_number(cfg.delay_s),
         ]
         streams = cfg.camera_streams
-        hold = cfg.hold or bool(streams)
-        if streams and not cfg.hold:
+        hold = cfg.hold or bool(streams) or cfg.freecam
+        if (streams or cfg.freecam) and not cfg.hold:
             LOG.info(
-                "[scene] hold is off, but camera streaming needs the loader "
-                "to stay connected: holding"
+                "[scene] hold is off, but camera streaming and the free camera "
+                "need the loader to stay connected: holding"
             )
         if hold:
             command.append("--hold")
+        if cfg.freecam:  # the loader moves it for the Simulator tab
+            command += ["--freecam-port", str(ports.FREECAM_PORT)]
         self.podman.run_detached(
             cfg.image,
             SCENE_NAME,

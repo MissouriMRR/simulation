@@ -43,6 +43,7 @@ def main() -> int:
     ap.add_argument("--scene", required=True, help="scene .jsonc file name inside --config-dir")
     ap.add_argument("--delay", type=float, default=2.0, help="seconds to wait after the scene loads")
     ap.add_argument("--hold", action="store_true", help="stay connected until signaled")
+    ap.add_argument("--freecam-port", type=int, default=0, help="move the free camera for messages on this UDP port")
     args = ap.parse_args()
 
     stop = False
@@ -66,6 +67,13 @@ def main() -> int:
             sim_config_path=os.path.join(args.config_dir, ""),
         )
         start_camera_streams(client, world)
+        if args.freecam_port:
+            try:
+                import freecam_server
+
+                freecam_server.start(client, world, args.freecam_port, log=lambda line: print(line, flush=True))
+            except Exception as exc:  # flying still works without it; the launcher shows this line
+                print(f"free camera FAILED: {type(exc).__name__}: {exc}", flush=True)
         print("Scene loaded", flush=True)  # the launcher waits for exactly this line
         while args.hold and not stop:
             time.sleep(0.5)

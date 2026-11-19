@@ -244,6 +244,22 @@ class Generator(Base):
         for name, data in before.items():
             self.assertEqual((self.dir / name).read_bytes(), data, name)
 
+    def test_the_free_camera_starts_behind_and_above_vehicle_zero_and_is_never_doubled(self):
+        name = scenegen.generate(self.dir, BASE, 2, pose=Pose((10.0, 20.0, -5.0)), window=(960, 540), freecam=True)
+        self.assertTrue(name.endswith("_freecam.jsonc"))
+        actors = {a["name"]: a for a in self.robots(name)}
+        cam = actors[scenegen.FREECAM]
+        self.assertEqual(self.xyz(cam["origin"]), [10 - scenegen.FREECAM_BEHIND_M, 20, -5 - scenegen.FREECAM_ABOVE_M])
+        config = scenecheck.load_jsonc(self.dir / cam["robot-config"])
+        self.assertEqual(config["physics-type"], "non-physics")
+        shot = config["sensors"][0]["capture-settings"][0]
+        self.assertEqual((shot["width"], shot["height"], shot["streaming-enabled"]), (960, 540, True))  # the window's size
+        self.assertEqual(scenecheck.check_scene(self.dir, name, 2), [])                  # not taken for a vehicle
+        self.assertNotIn(cam["robot-config"], [p.name for p in vd.Library(self.tmp / "v", self.dir).provided()])
+        one = scenegen.generate(self.dir, BASE, 1, freecam=True)
+        again = scenegen.generate(self.dir, one, 2, freecam=True)                            # a scene made here before
+        self.assertEqual([r["name"] for r in self.robots(again)].count(scenegen.FREECAM), 1)
+
     def test_a_home_point_makes_a_generated_scene_with_that_home_and_another_home_another_file(self):
         home = (34.6251269, -86.8091462, 15.0)
         name = scenegen.generate(self.dir, BASE, 1, home=home)
@@ -285,11 +301,15 @@ class CommandLine(Base):
         self.assertNotEqual(self.cfg.scene.scene, BASE)
         self.assertIn("vehicle 0 placed at 5 3 -2, rotation 0 0 90", said)
 
-    def test_no_pose_leaves_the_scene_alone(self):
-        self.prepare(Pose())
-        self.assertEqual(self.cfg.scene.scene, BASE)
-        self.prepare(None)
-        self.assertEqual(self.cfg.scene.scene, BASE)
+    def test_without_a_pose_the_scene_only_gains_the_free_camera(self):
+        for pose in (Pose(), None):
+            self.prepare(pose)
+            self.assertEqual(self.cfg.scene.scene, scenegen.scene_name(1, freecam=True))
+            robots = self.robots(self.cfg.scene.scene)
+            self.assertEqual([r["name"] for r in robots][1:], [scenegen.FREECAM])
+            self.assertEqual(robots[0], self.robots(BASE)[0])               # the vehicle as the scene has it
+            self.assertTrue(self.cfg.scene.freecam)
+            self.cfg.scene.scene = BASE
 
     def test_a_pose_cannot_be_combined_with_your_own_scene(self):
         with self.assertRaises(config.ConfigError) as caught:
@@ -343,7 +363,7 @@ class CommandLine(Base):
 
     def test_a_run_without_the_options_is_unchanged(self):
         code, seen, said = self.run_cli("--airsim -s")
-        self.assertEqual((code, seen["args"], seen["scene"]), (0, ["--airsim", "-s"], BASE))
+        self.assertEqual((code, seen["args"], seen["scene"]), (0, ["--airsim", "-s"], scenegen.scene_name(1, freecam=True)))
         self.assertNotIn("placed at", said)
 
     def test_the_vehicle_poses_use_the_vehicle_count_of_the_run(self):

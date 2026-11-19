@@ -138,6 +138,7 @@ class SceneCfg:
     load_timeout_s: float = 180.0
     # set from the vehicle design by the launcher; not a setting (init=False: mrrsim.toml cannot give it)
     camera_streams: list = field(default_factory=list, init=False)
+    freecam: bool = field(default=False, init=False)  # the scene has the free camera (set by the launcher)
 
 
 @dataclass

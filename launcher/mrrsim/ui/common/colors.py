@@ -19,3 +19,5 @@ DRAG_GHOST = "#fff8c5"      # the label that follows the pointer while a part is
 # --------------------------------------------------------------------------------------------- Simulator tab
 SIM_BACKGROUND = "#202020"  # behind the simulator shown inside the window
 SIM_NOTE = "#b0b0b0"        # the note shown there before the simulator appears
+FLYING_DOT = "#2ec27e"      # the dot that shows the free camera took the keyboard (green)
+OVERLAY_KEY = "#ff00ff"     # see-through in that dot's window (never shown)

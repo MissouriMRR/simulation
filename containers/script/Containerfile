@@ -84,7 +84,7 @@ RUN apt-get update \
         libgl1 libglib2.0-0 libsm6 libxext6 libxcb1 libzbar0 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=builder-airsim /opt/venv /opt/venv
-COPY scene_loader.py camera_relay.py /opt/mrrsim/
+COPY scene_loader.py camera_relay.py freecam_server.py /opt/mrrsim/
 # Checked here, not in the builder: OpenCV needs the system libraries installed above.
 RUN python -W ignore -c "import ctypes.util, utm, scipy, shapely, aiohttp, aiofiles, colorlog, onnxruntime, pyodm, airsim, siyi_sdk, cv2, numpy, dronekit, projectairsim, ultralytics; assert ctypes.util.find_library('zbar'), 'libzbar0 missing'; print('the flight code packages import, and the ZBar library is there')"
 CMD ["python", "--version"]

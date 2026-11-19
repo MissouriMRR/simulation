@@ -360,7 +360,9 @@ def _prepare_scene(
             design=design,
             pose=pose,
             home=home,
+            freecam=True,
         )
+        cfg.scene.freecam = True
         print(
             f"generated {cfg.scene.scene} ({count} vehicle(s)) "
             f"with the vehicle design {design_name!r}"
@@ -382,8 +384,6 @@ def _prepare_scene(
             # the student's own scene is used as it is; doctor checks that it
             # matches
             return
-        if count == 1 and not scenegen.display_resize_needed(folder, current, window):
-            return  # the original scene, nothing to adjust
         if (
             count > 1
             and (folder / current).is_file()
@@ -398,7 +398,9 @@ def _prepare_scene(
         window=window,
         pose=pose,
         home=home,
+        freecam=True,
     )
+    cfg.scene.freecam = True
     notes = (
         ", cameras disabled"
         if not cameras

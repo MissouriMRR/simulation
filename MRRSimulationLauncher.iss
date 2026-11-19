@@ -7,7 +7,7 @@
 ; DO NOT CHANGE "AppId" DO NOT CHANGE EVER
 #define AppGuid "99C26AA2-5C27-4D7E-897F-35C5B653CDF7"
 #define AppName "MRRSimulator"
-#define AppVersion "0.3.1"
+#define AppVersion "0.3.2"
 #define AppPublisher "S&T Multirotor Design Team"
 #define LauncherExe "MRRSimulator.exe"
 ; The window (built without a console); it runs LauncherExe in the background
@@ -84,7 +84,7 @@ Source: "config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs
 Source: "config\mrrsim.toml"; DestName: "shipped-mrrsim.toml"; Flags: dontcopy
 Source: "scripts\*"; DestDir: "{app}\scripts"; Excludes: "__pycache__"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "sim_config\*"; DestDir: "{app}\sim_config"; \
-  Excludes: "scene_ardupilot_*quadrotors*.jsonc,robot_ardu_quadrotor_*.jsonc,generate_scene.py"; \
+  Excludes: "scene_ardupilot_*quadrotors*.jsonc,robot_ardu_quadrotor_*.jsonc,robot_freecam_*.jsonc,generate_scene.py"; \
   Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "containers\*"; DestDir: "{app}\containers"; Excludes: "__pycache__,tests"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "Windows\*"; DestDir: "{app}\Windows"; Excludes: "*.log"; Flags: ignoreversion recursesubdirs createallsubdirs

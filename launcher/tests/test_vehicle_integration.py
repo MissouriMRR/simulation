@@ -130,12 +130,12 @@ class CommandLine(Base):
     def test_design_flag_selects_the_designs_scene(self):
         self.library.create("My quad", design_doc())
         self.cfg.sitl.vehicles = 2
-        self.assertEqual(self.prepare(design="My quad"), "scene_ardupilot_2quadrotors_design_my_quad.jsonc")
+        self.assertEqual(self.prepare(design="My quad"), "scene_ardupilot_2quadrotors_design_my_quad_freecam.jsonc")
         self.assertTrue((self.dir / "robot_design_my_quad_2.jsonc").is_file())
 
-    def test_without_the_flag_nothing_changes(self):
+    def test_without_the_flag_the_provided_vehicle_flies(self):
         self.library.create("My quad", design_doc())
-        self.assertEqual(self.prepare(), "scene_ardupilot_quadrotor.jsonc")
+        self.assertEqual(self.prepare(), "scene_ardupilot_1quadrotors_freecam.jsonc")  # the scene's own robot config
 
     def test_an_unknown_design_is_refused(self):
         with self.assertRaises(config.ConfigError) as caught:
@@ -192,7 +192,7 @@ class CommandLine(Base):
                 self.assertLogs("mrrsim", level="INFO") as logs:
             code = cli.main(argv)
         self.assertEqual(code, 0)
-        self.assertIn("scene_ardupilot_2quadrotors_design_my_quad.jsonc", "\n".join(logs.output))
+        self.assertIn("scene_ardupilot_2quadrotors_design_my_quad_freecam.jsonc", "\n".join(logs.output))
 
 
 if __name__ == "__main__":

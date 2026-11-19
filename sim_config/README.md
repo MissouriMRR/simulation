@@ -40,6 +40,7 @@ vehicle waits for sensor data forever and its serial ports never open.
 | `generate_scene.py` | writes the files below for N vehicles |
 | `scene_ardupilot_<N>quadrotors.jsonc` | **generated**: Drone1..DroneN, 5 m apart along y |
 | `robot_ardu_quadrotor_<k>.jsonc` | **generated**: robot for Drone`k` (k = 2..N), same as the template but with its own UDP ports |
+| `*_freecam.jsonc`, `robot_freecam_<W>x<H>.jsonc` | **generated**: every scene the launcher makes also has `FreeCam`, a camera on no vehicle that the Simulator tab flies (Tab) |
 | `*_nocam*.jsonc` | **generated** with `--no-cameras`: the same scene and robots with every camera sensor disabled |
 | `*_<W>x<H>*.jsonc` | **generated** when the simulator window is not the size of the scene's streamed camera (1280x720): the same scene and robots with that camera set to the window's size, so Unreal does not resize its window when the vehicle spawns |
 
