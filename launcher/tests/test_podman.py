@@ -347,6 +347,46 @@ class Follower(unittest.TestCase):
         handle.close.assert_called_once()
 
 
+class SourceStamp(unittest.TestCase):
+    """An image's `mrrsim.source` label: what it was built from, to tell an image older than the build files."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+        for name, text in (("Containerfile", "FROM x\n"), ("scene_loader.py", "print(1)\n"), ("tests/test_a.py", "1\n"),
+                           ("README.md", "notes\n")):
+            (self.dir / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.dir / name).write_bytes(text.encode())
+
+    def test_the_same_files_give_the_same_stamp_whatever_their_line_endings(self):
+        first = podman_module.source_stamp(self.dir)
+        self.assertRegex(first, r"^[0-9a-f]{12}$")
+        (self.dir / "scene_loader.py").write_bytes(b"print(1)\r\n")
+        self.assertEqual(podman_module.source_stamp(self.dir), first)
+
+    def test_a_changed_build_file_changes_it_and_tests_or_notes_do_not(self):
+        first = podman_module.source_stamp(self.dir)
+        (self.dir / "tests" / "test_a.py").write_bytes(b"2\n")
+        (self.dir / "README.md").write_bytes(b"more notes\n")
+        self.assertEqual(podman_module.source_stamp(self.dir), first)
+        for name in ("scene_loader.py", "Containerfile"):
+            (self.dir / name).write_bytes(b"changed\n")
+            self.assertNotEqual(podman_module.source_stamp(self.dir), first, name)
+            first = podman_module.source_stamp(self.dir)
+
+
+class ImageLabel(Fake):
+    def test_the_label_is_read_and_a_missing_one_or_image_is_none(self):
+        self.run.return_value = done(0, "abc123def456\n")
+        self.assertEqual(self.podman.image_label("img", "mrrsim.source"), "abc123def456")
+        self.assertEqual(self.asked(), ["image", "inspect", "--format", '{{index .Labels "mrrsim.source"}}', "img"])
+        self.run.return_value = done(0, "<no value>\n")
+        self.assertIsNone(self.podman.image_label("img", "mrrsim.source"))
+        self.run.return_value = done(125, "", "no such image")
+        self.assertIsNone(self.podman.image_label("img", "mrrsim.source"))
+
+
 class Labels(unittest.TestCase):
     def labels(self, args) -> list[str]:
         return [args[i + 1] for i, word in enumerate(args) if word == "--label"]

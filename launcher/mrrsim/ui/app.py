@@ -16,6 +16,7 @@ import traceback
 from tkinter import font as tkfont
 from tkinter import messagebox, ttk
 
+from .. import __version__
 from ..core import config, paths
 from ..designs import vehicle_design
 from .common import colors
@@ -40,7 +41,7 @@ class App:
         self._alive = True             # False once the window is destroyed
 
         self.scale = max(1.0, root.winfo_fpixels("1i") / 96)  # 1.25 at 125% screen scaling
-        root.title("MRRSimulator")
+        root.title(f"MRRSimulator - v{__version__}")
         self._set_icon()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.report_callback_exception = self._callback_failed

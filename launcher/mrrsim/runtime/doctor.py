@@ -18,7 +18,7 @@ from ..core.config import Config
 from ..scene import scenecheck
 from ..userscripts import pipinstall
 from . import wsl
-from .podman import Mount, Podman, PodmanError, run_args
+from .podman import SOURCE_LABEL, Mount, Podman, PodmanError, run_args, source_stamp
 from .winproc import IS_WINDOWS, total_ram_gb
 
 # === CONSTANTS ================================================================
@@ -396,10 +396,12 @@ def _podman(cfg: Config, podman: Podman, *, scene: bool, script: bool) -> list[C
                 images.append((label, ref, which))
         # The questions do not depend on each other, and each is a command run
         # in WSL, so they are asked at the same time.
-        with ThreadPoolExecutor(max_workers=len(images) + 2) as pool:
+        stamps = {which: source_stamp(paths.containers_dir() / which) for _, _, which in images}
+        with ThreadPoolExecutor(max_workers=2 * len(images) + 2) as pool:
             rootless = pool.submit(podman.rootless)
             has_init = pool.submit(podman.has_init_binary) if cfg.wsl.use_init else None
             exist = [pool.submit(podman.image_exists, ref) for _, ref, _ in images]
+            built_from = [pool.submit(podman.image_label, ref, SOURCE_LABEL) for _, ref, _ in images]
             if rootless.result() is False:
                 checks.append(
                     Check(
@@ -418,9 +420,18 @@ def _podman(cfg: Config, podman: Podman, *, scene: bool, script: bool) -> list[C
                         "sudo apt install catatonit, or set use_init = false",
                     )
                 )
-            for (label, ref, which), found in zip(images, exist):
-                if found.result():
+            for (label, ref, which), found, stamp in zip(images, exist, built_from):
+                if found.result() and stamp.result() == stamps[which]:
                     checks.append(Check(label, OK, ref))
+                elif found.result():  # made from other build files: the code may need what it lacks
+                    checks.append(
+                        Check(
+                            label,
+                            FAIL,
+                            f"{ref} is older than containers/{which}",
+                            f"rebuild it: mrrsim images build {which}",
+                        )
+                    )
                 else:
                     checks.append(
                         Check(

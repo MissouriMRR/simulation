@@ -11,6 +11,7 @@ from unittest import mock
 
 from mrrsim.core import config, paths
 from mrrsim.runtime import doctor, wsl
+from mrrsim.runtime import podman as podman_mod
 from mrrsim.runtime.doctor import FAIL, OK, WARN, Check
 from mrrsim.runtime.podman import PodmanError
 from mrrsim.scene import scenegen
@@ -313,10 +314,17 @@ class Distro(Folder):
 
 
 class Podman(Folder):
-    def podman(self, version="podman version 4.9.3", rootless=True, init=True, images=()):
+    def podman(self, version="podman version 4.9.3", rootless=True, init=True, images=(), stale=()):
+        """`images` exist; those in `stale` were built from other files (the rest carry the current stamp)."""
+        def label(ref, key):
+            self.assertEqual(key, podman_mod.SOURCE_LABEL)
+            which = "sitl" if ref == self.cfg.sitl.image_ref else "script"
+            return "old000000000" if ref in stale else podman_mod.source_stamp(paths.containers_dir() / which)
+
         return mock.Mock(version=mock.Mock(return_value=version), rootless=mock.Mock(return_value=rootless),
                          has_init_binary=mock.Mock(return_value=init),
-                         image_exists=mock.Mock(side_effect=lambda ref: ref in images))
+                         image_exists=mock.Mock(side_effect=lambda ref: ref in images),
+                         image_label=mock.Mock(side_effect=label))
 
     def check(self, podman, scene=True, script=True):
         return doctor._podman(self.cfg, podman, scene=scene, script=script)
@@ -350,6 +358,17 @@ class Podman(Folder):
         self.assertEqual(checks["script image"].status, FAIL)
         self.assertIn("mrrsim images build script", checks["script image"].hint)
         self.assertEqual(checks["scene-loader image"].status, FAIL)
+
+    def test_an_image_built_from_older_files_fails_with_the_command_that_rebuilds_it(self):
+        checks = {c.name: c for c in self.check(self.podman(images=self.everything(), stale={self.cfg.scene.image}))}
+        self.assertEqual(checks["SITL image"].status, OK)
+        self.assertEqual(checks["scene-loader image"].status, FAIL)
+        self.assertIn("is older than containers/script", checks["scene-loader image"].detail)
+        self.assertEqual(checks["scene-loader image"].hint, "rebuild it: mrrsim images build script")
+        podman = self.podman(images=self.everything())
+        podman.image_label.side_effect = None
+        podman.image_label.return_value = None                                    # built before images were stamped
+        self.assertTrue(all(c.status == FAIL for c in self.check(podman) if c.name.endswith("image")))
 
     def test_the_sitl_image_is_built_with_its_own_command(self):
         checks = {c.name: c for c in self.check(self.podman(images=set()))}

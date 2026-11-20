@@ -5,6 +5,7 @@ Every container the launcher starts carries the label `mrrsim=1`, so leftovers
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shlex
 import subprocess
@@ -20,6 +21,8 @@ from . import wsl
 
 
 LABEL = "mrrsim"
+# The image label that says which build files an image was made from (see source_stamp)
+SOURCE_LABEL = "mrrsim.source"
 # Subcommands that change state. In dry-run mode these are printed, not
 # executed.
 MUTATING = {
@@ -97,6 +100,19 @@ def run_args(
     args.append(image)
     args.extend(command)
     return args
+
+
+def source_stamp(folder: Path) -> str:
+    """A short hash of what an image is built from: every file of its build
+    folder (path and contents, line endings ignored), except tests, caches
+    and notes. An image labeled with another stamp is older than these files."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+        rel = path.relative_to(folder)
+        if rel.parts[0] == "tests" or "__pycache__" in rel.parts or path.suffix == ".md":
+            continue
+        digest.update(rel.as_posix().encode() + b"\0" + path.read_bytes().replace(b"\r\n", b"\n") + b"\0")
+    return digest.hexdigest()[:12]
 
 
 # === FOLLOWING A CONTAINER'S LOG ==============================================
@@ -215,6 +231,14 @@ class Podman:
         """Is the image `ref` in podman's local storage? Raises PodmanError if
         WSL did not answer at all."""
         return self._asked(["image", "exists", ref]).returncode == 0
+
+    def image_label(self, ref: str, key: str) -> str | None:
+        """The value of the label `key` on the image `ref`; None when it has
+        none (or there is no such image). Raises PodmanError if WSL did not
+        answer at all."""
+        result = self._asked(["image", "inspect", "--format", f'{{{{index .Labels "{key}"}}}}', ref])
+        value = result.stdout.strip() if result.returncode == 0 else ""
+        return value if value and value != "<no value>" else None
 
     def is_running(self, name: str) -> bool:
         """Is the container `name` running right now?"""
