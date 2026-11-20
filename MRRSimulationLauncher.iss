@@ -7,7 +7,7 @@
 ; DO NOT CHANGE "AppId" DO NOT CHANGE EVER
 #define AppGuid "99C26AA2-5C27-4D7E-897F-35C5B653CDF7"
 #define AppName "MRRSimulator"
-#define AppVersion "0.3.2"
+#define AppVersion "0.3.3"
 #define AppPublisher "S&T Multirotor Design Team"
 #define LauncherExe "MRRSimulator.exe"
 ; The window (built without a console); it runs LauncherExe in the background

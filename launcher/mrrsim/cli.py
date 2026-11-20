@@ -18,7 +18,7 @@ from .core import config, paths
 from .core.log import setup
 from .designs import vehicle_design
 from .runtime import bundle, doctor, session, wsl
-from .runtime.podman import Podman, PodmanError
+from .runtime.podman import SOURCE_LABEL, Podman, PodmanError, source_stamp
 from .scene import camerastream, poseargs, scenecheck, scenegen
 from .userscripts import pipinstall, projects, scripts
 
@@ -803,6 +803,8 @@ def cmd_images(cfg: config.Config, args: argparse.Namespace) -> int:
         rc = podman.build(
             [
                 *common,
+                "--label",
+                f"{SOURCE_LABEL}={source_stamp(containers / 'sitl')}",
                 "-t",
                 sitl_tag,
                 "--build-arg",
@@ -822,8 +824,9 @@ def cmd_images(cfg: config.Config, args: argparse.Namespace) -> int:
         targets = [("airsim", cfg.scene.image)]
         if cfg.scripts.image != cfg.scene.image:
             targets.insert(0, ("runtime", cfg.scripts.image))
+        stamp = ["--label", f"{SOURCE_LABEL}={source_stamp(containers / 'script')}"]
         for target, tag in targets:
-            rc = podman.build([*common, "--target", target, "-t", tag, *extra, context])
+            rc = podman.build([*common, *stamp, "--target", target, "-t", tag, *extra, context])
             if rc != 0:
                 return rc
     return 0

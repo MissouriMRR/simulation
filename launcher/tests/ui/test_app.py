@@ -9,6 +9,7 @@ from pathlib import Path
 from tkinter import ttk
 from unittest import mock
 
+import mrrsim
 from mrrsim.core import config, paths
 from mrrsim.ui import app as window
 from mrrsim.ui.common.values import NO_VALUE
@@ -78,6 +79,9 @@ class Shared(unittest.TestCase):
             self.app.on_close()
         stop.assert_called_once()
         self.assertTrue(self.app.closing)
+
+    def test_the_title_says_the_version(self):
+        self.assertEqual(self.root.title(), f"MRRSimulator - v{mrrsim.__version__}")
 
     def test_the_tabs_are_run_then_vehicles_then_the_simulator(self):
         texts = [self.app.tabs.tab(i, "text") for i in range(self.app.tabs.index("end"))]

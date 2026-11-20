@@ -144,5 +144,20 @@ class PodmanFailures(unittest.TestCase):
         self.assertIn("error: podman rm failed (exit 125): container is busy", printed)
 
 
+class ImageBuilds(unittest.TestCase):
+    def test_every_image_is_labeled_with_the_stamp_of_the_files_it_is_built_from(self):
+        cfg = default_config()
+        args = cli.build_parser().parse_args(["images", "build", "all", "--dry-run"])
+        built = []
+        with mock.patch.object(cli.Podman, "build", side_effect=lambda a: built.append(a) or 0), \
+                mock.patch.object(cli.wsl, "to_wsl_path", side_effect=lambda p, d: str(p)):
+            self.assertEqual(cli.cmd_images(cfg, args), 0)
+        self.assertGreaterEqual(len(built), 2)
+        for build in built:
+            folder = "sitl" if any("sitl" in Path(word).name for word in build[-1:]) else "script"
+            stamp = cli.source_stamp(paths.containers_dir() / folder)
+            self.assertIn(f"{cli.SOURCE_LABEL}={stamp}", build, build)
+
+
 if __name__ == "__main__":
     unittest.main()
